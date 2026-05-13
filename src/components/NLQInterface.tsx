@@ -1,298 +1,240 @@
-import React, { useState, useEffect } from 'react';
-import { safeInvoke } from '../utils/tauri';
-import { MessageSquare, Play, Copy, Download, RefreshCw, Zap, Turtle, Settings, Lock, Unlock } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  MessageSquare,
+  Play,
+  Copy,
+  Download,
+  RefreshCw,
+  Zap,
+  Turtle,
+  Settings,
+  Lock,
+  Unlock,
+  ShieldAlert,
+} from 'lucide-react';
+import { api } from '../services/api';
+import { generateSql, parseTableTags, type LlmConfig, type Provider } from '../services/llm';
+import { useDb } from '../store/DbContext';
+import { SQLSafetyAnalyzer } from '../utils/sqlSafetyAnalyzer';
+import type { QueryResult, Row, TableColumn } from '../types/api';
 import '../index.css';
 
-interface NLQInterfaceProps {
-  dbConnected: boolean;
-  onStatusUpdate: (message: string) => void;
-  onLoadingChange: (loading: boolean) => void;
-}
+const DEFAULT_LMSTUDIO_ENDPOINT = 'http://localhost:1234/api/v1/chat';
+const DEFAULT_OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
+const OPENROUTER_KEYRING_ACCOUNT = 'openrouter_api_key';
 
-type Provider = 'lmstudio' | 'openrouter';
-
-interface BackendColumn {
-  name: string;
-  data_type: string;
-  nullable: boolean;
-  default?: string;
-}
-
-interface BackendQueryResult {
-  success: boolean;
-  columns?: BackendColumn[];
-  rows?: Record<string, string>[];
-  message?: string;
-  row_count?: number;
-}
-
-interface DisplayQueryResult {
-  success: boolean;
-  columns: string[];
-  rows: string[][];
-  message?: string;
-  rowCount: number;
-}
+const PAGE_SIZE = 100;
 
 interface PerformanceMetrics {
   approach: 'strategic' | 'traditional';
   tablesUsed: string[] | 'all';
   estimatedTokens: number;
-  processingTime: string;
+  generationMs: number;
   provider: string;
 }
 
-const DEFAULT_LMSTUDIO_ENDPOINT = 'http://localhost:1234/api/v1/chat';
-const DEFAULT_OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_OPENROUTER_API_KEY = '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';
+const csvEscape = (v: string) =>
+  /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 
-const parseTableTags = (query: string): string[] => {
-  const matches = query.match(/@(\w+)/g) ?? [];
-  return matches.map(tag => tag.slice(1));
+const cellText = (v: string | null) => (v === null ? 'NULL' : v);
+
+const formatMs = (ms: number): string => {
+  if (ms < 1) return '< 1 ms';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
 };
 
-const normalizeQueryResult = (raw: BackendQueryResult): DisplayQueryResult => {
-  const columns = raw.columns?.map(c => c.name) ?? [];
-  const rows = (raw.rows ?? []).map(row =>
-    columns.map(name => {
-      const v = row?.[name];
-      return v === undefined || v === null ? 'NULL' : String(v);
-    })
-  );
-  return {
-    success: raw.success,
-    columns,
-    rows,
-    message: raw.message,
-    rowCount: raw.row_count ?? rows.length,
-  };
-};
+const NLQInterface: React.FC = () => {
+  const {
+    status,
+    tables: availableTables,
+    schema,
+    refreshSchema,
+    readOnlyLock,
+    setReadOnlyLock,
+    setStatusMessage,
+    setLoading,
+  } = useDb();
+  const dbConnected = status.connected;
 
-const csvEscape = (value: string): string => {
-  if (/[",\n\r]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
-};
-
-const NLQInterface: React.FC<NLQInterfaceProps> = ({
-  dbConnected,
-  onStatusUpdate,
-  onLoadingChange,
-}) => {
   const [naturalQuery, setNaturalQuery] = useState('');
   const [generatedSQL, setGeneratedSQL] = useState('');
-  const [queryResult, setQueryResult] = useState<DisplayQueryResult | null>(null);
-  const [schema, setSchema] = useState('');
-  const [availableTables, setAvailableTables] = useState<string[]>([]);
+  const [queryColumns, setQueryColumns] = useState<TableColumn[]>([]);
+  const [queryRows, setQueryRows] = useState<Row[]>([]);
+  const [queryMeta, setQueryMeta] = useState<{
+    success: boolean;
+    message?: string;
+    rowCount: number;
+    executionMs: number;
+  } | null>(null);
+  const [page, setPage] = useState(0);
+
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
   const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+
   const [provider, setProvider] = useState<Provider>('lmstudio');
   const [lmStudioEndpoint, setLmStudioEndpoint] = useState(DEFAULT_LMSTUDIO_ENDPOINT);
   const [openRouterEndpoint, setOpenRouterEndpoint] = useState(DEFAULT_OPENROUTER_ENDPOINT);
-  const [openRouterApiKey, setOpenRouterApiKey] = useState(DEFAULT_OPENROUTER_API_KEY);
-  const [readOnlyLock, setReadOnlyLock] = useState(true);
+  const [openRouterApiKey, setOpenRouterApiKey] = useState('');
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [pendingDestructive, setPendingDestructive] = useState<{ warnings: string[] } | null>(null);
 
+  // Load settings on mount (with migration of legacy localStorage API key into keychain).
   useEffect(() => {
-    const savedProvider = (localStorage.getItem('provider') as Provider | null) ?? 'lmstudio';
-    const savedLmStudioEndpoint = localStorage.getItem('lmStudioEndpoint') ?? DEFAULT_LMSTUDIO_ENDPOINT;
-    const savedOpenRouterEndpoint = localStorage.getItem('openRouterEndpoint') ?? DEFAULT_OPENROUTER_ENDPOINT;
-    const savedOpenRouterApiKey = localStorage.getItem('openRouterApiKey') ?? DEFAULT_OPENROUTER_API_KEY;
-    // Default to true (read-only) when the key has never been set — safer for new users.
-    const savedReadOnlyLockRaw = localStorage.getItem('readOnlyLock');
-    const savedReadOnlyLock = savedReadOnlyLockRaw === null ? true : savedReadOnlyLockRaw === 'true';
+    (async () => {
+      setProvider((localStorage.getItem('provider') as Provider | null) ?? 'lmstudio');
+      setLmStudioEndpoint(localStorage.getItem('lmStudioEndpoint') ?? DEFAULT_LMSTUDIO_ENDPOINT);
+      setOpenRouterEndpoint(localStorage.getItem('openRouterEndpoint') ?? DEFAULT_OPENROUTER_ENDPOINT);
 
-    setProvider(savedProvider);
-    setLmStudioEndpoint(savedLmStudioEndpoint);
-    setOpenRouterEndpoint(savedOpenRouterEndpoint);
-    setOpenRouterApiKey(savedOpenRouterApiKey);
-    setReadOnlyLock(savedReadOnlyLock);
+      const legacy = localStorage.getItem('openRouterApiKey');
+      if (legacy) {
+        try {
+          await api.credentialSet(OPENROUTER_KEYRING_ACCOUNT, legacy);
+        } catch (e) {
+          console.warn('Failed to migrate API key into keyring:', e);
+        }
+        localStorage.removeItem('openRouterApiKey');
+      }
+      try {
+        const key = await api.credentialGet(OPENROUTER_KEYRING_ACCOUNT);
+        setOpenRouterApiKey(key ?? '');
+      } catch (e) {
+        console.warn('Failed to load API key:', e);
+      }
+    })();
   }, []);
 
-  const handleSaveSettings = () => {
+  const saveSettings = async () => {
     localStorage.setItem('provider', provider);
     localStorage.setItem('lmStudioEndpoint', lmStudioEndpoint);
     localStorage.setItem('openRouterEndpoint', openRouterEndpoint);
-    localStorage.setItem('openRouterApiKey', openRouterApiKey);
-    localStorage.setItem('readOnlyLock', readOnlyLock.toString());
-    setShowSettings(false);
-    onStatusUpdate('Settings saved');
+    try {
+      if (openRouterApiKey.trim()) {
+        await api.credentialSet(OPENROUTER_KEYRING_ACCOUNT, openRouterApiKey);
+      } else {
+        await api.credentialDelete(OPENROUTER_KEYRING_ACCOUNT);
+      }
+      setShowSettings(false);
+      setStatusMessage('Settings saved');
+    } catch (e) {
+      setStatusMessage(`Failed to save settings: ${e}`);
+    }
   };
 
   const toggleLock = () => {
-    const newLockState = !readOnlyLock;
-    setReadOnlyLock(newLockState);
-    localStorage.setItem('readOnlyLock', newLockState.toString());
-    onStatusUpdate(
-      newLockState
-        ? 'Read-Only mode enabled - database protected from modifications'
-        : 'Read-Only mode disabled - full database access allowed'
+    const next = !readOnlyLock;
+    setReadOnlyLock(next);
+    setStatusMessage(
+      next
+        ? 'Read-only mode enabled — write queries will be blocked'
+        : 'Read-only mode disabled — full access'
     );
   };
 
-  const switchProvider = (newProvider: Provider) => {
-    if (newProvider === 'openrouter' && !openRouterApiKey.trim()) {
-      onStatusUpdate('Please enter OpenRouter API key in settings before switching');
-      return;
-    }
-    setProvider(newProvider);
-    onStatusUpdate(`Switched to ${newProvider === 'lmstudio' ? 'LM Studio' : 'OpenRouter'}`);
-  };
-
-  useEffect(() => {
-    if (dbConnected) {
-      loadSchema();
-      loadTables();
-    } else {
-      setSchema('');
-      setAvailableTables([]);
-      setQueryResult(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dbConnected]);
-
-  const loadTables = async () => {
-    try {
-      const response = await safeInvoke<{ tables: string[] }>('get_tables', {});
-      setAvailableTables(response?.tables ?? []);
-    } catch (error) {
-      console.error('Failed to load tables:', error);
-    }
-  };
-
-  const loadSchema = async () => {
-    try {
-      onLoadingChange(true);
-      onStatusUpdate('Loading schema...');
-      const response = await safeInvoke<string>('get_schema', {});
-      setSchema(response || 'No schema available');
-      onStatusUpdate('Schema loaded');
-    } catch (error) {
-      onStatusUpdate('Schema load failed');
-      setSchema('No schema available');
-    } finally {
-      onLoadingChange(false);
-    }
-  };
-
-  const generateSQL = async () => {
+  const handleGenerate = async () => {
     if (!naturalQuery.trim()) {
-      onStatusUpdate('Enter a query first');
+      setStatusMessage('Enter a query first');
       return;
     }
-    if (provider === 'openrouter' && !openRouterApiKey.trim()) {
-      onStatusUpdate('Enter OpenRouter API key');
-      return;
-    }
-
     const taggedTables = parseTableTags(naturalQuery);
+
     setIsGenerating(true);
-    onLoadingChange(true);
-
+    setLoading(true);
+    const t0 = performance.now();
     try {
-      const prompt = `Schema:\n${schema || 'No schema loaded'}\n\nAvailable Tables: ${availableTables.join(', ')}\n\nQuery: ${naturalQuery}\n\n${taggedTables.length > 0 ? `Focus on these tables: ${taggedTables.join(', ')}` : ''}\n\nReturn SQL only:`;
+      // Server-side schema filtering: when @tags are present, only the relevant
+      // tables are rendered into the prompt. Cuts token usage on large DBs.
+      const promptSchema = taggedTables.length > 0
+        ? await api.getFilteredSchema(taggedTables)
+        : schema;
 
-      const response = provider === 'lmstudio'
-        ? await fetch(lmStudioEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: 'local-model', input: prompt, temperature: 0.1 }),
-          })
-        : await fetch(openRouterEndpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${openRouterApiKey}`,
-            },
-            body: JSON.stringify({
-              model: 'poolside/laguna-m.1:free',
-              messages: [{ role: 'user', content: prompt }],
-              temperature: 0.1,
-            }),
-          });
+      const config: LlmConfig = {
+        provider,
+        lmStudioEndpoint,
+        openRouterEndpoint,
+        openRouterApiKey,
+      };
 
-      if (!response.ok) throw new Error(`API failed (${response.status})`);
+      const sql = await generateSql({
+        naturalQuery,
+        schema: promptSchema,
+        taggedTables,
+        config,
+      });
+      const generationMs = performance.now() - t0;
+      setGeneratedSQL(sql);
 
-      const data = await response.json();
-      const sql = provider === 'lmstudio'
-        ? (data.content?.trim() || data.message?.trim())
-        : data.choices?.[0]?.message?.content?.trim();
-
-      if (sql) {
-        const cleanedSQL = sql.replace(/```sql\n?|```\n?/g, '').trim();
-        setGeneratedSQL(cleanedSQL);
-
-        const approach: 'strategic' | 'traditional' = taggedTables.length > 0 ? 'strategic' : 'traditional';
-        setPerformanceMetrics({
-          approach,
-          tablesUsed: taggedTables.length > 0 ? taggedTables : 'all',
-          estimatedTokens: taggedTables.length > 0 ? 1500 : 3000,
-          processingTime: '< 2 seconds',
-          provider: provider === 'lmstudio' ? 'LM Studio' : 'OpenRouter',
-        });
-        onStatusUpdate(`SQL generated (${approach} approach)`);
-      } else {
-        onStatusUpdate('No SQL returned');
-      }
-    } catch (error) {
-      onStatusUpdate(`Error: ${error instanceof Error ? error.message : String(error)}`);
+      const approach: 'strategic' | 'traditional' =
+        taggedTables.length > 0 ? 'strategic' : 'traditional';
+      setPerformanceMetrics({
+        approach,
+        tablesUsed: taggedTables.length > 0 ? taggedTables : 'all',
+        estimatedTokens: taggedTables.length > 0 ? 1500 : 3000,
+        generationMs,
+        provider: provider === 'lmstudio' ? 'LM Studio' : 'OpenRouter',
+      });
+      setStatusMessage(`SQL generated in ${formatMs(generationMs)} (${approach})`);
+    } catch (e) {
+      setStatusMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setIsGenerating(false);
-      onLoadingChange(false);
+      setLoading(false);
     }
   };
 
-  const executeQuery = async () => {
-    if (!dbConnected || !generatedSQL.trim()) {
-      onStatusUpdate('Connect to database and generate SQL first');
-      return;
-    }
-
+  const runQuery = async (sql: string) => {
     setIsExecuting(true);
-    onLoadingChange(true);
-
+    setLoading(true);
+    setPage(0);
+    const t0 = performance.now();
     try {
-      const raw = await safeInvoke<BackendQueryResult>('execute_query', {
-        request: { sql_query: generatedSQL.trim() },
+      const raw: QueryResult = await api.execute(sql.trim());
+      const executionMs = performance.now() - t0;
+      const cols = raw.columns ?? [];
+      const rows = raw.rows ?? [];
+      setQueryColumns(cols);
+      setQueryRows(rows);
+      setQueryMeta({
+        success: raw.success,
+        message: raw.message,
+        rowCount: raw.row_count ?? rows.length,
+        executionMs,
       });
-
-      if (!raw) {
-        setQueryResult(null);
-        onStatusUpdate('No results returned');
-        return;
-      }
-
-      const normalized = normalizeQueryResult(raw);
-      setQueryResult(normalized);
-
-      if (normalized.success) {
-        onStatusUpdate(
-          normalized.rows.length > 0
-            ? `Query executed (${normalized.rowCount} rows)`
-            : 'Query executed - no rows returned'
-        );
-      } else {
-        onStatusUpdate(normalized.message ?? 'Query failed');
-      }
-    } catch (error) {
-      onStatusUpdate(`Error: ${error instanceof Error ? error.message : String(error)}`);
-      setQueryResult(null);
+      setStatusMessage(
+        raw.success
+          ? `Query executed in ${formatMs(executionMs)} (${raw.row_count ?? rows.length} rows)`
+          : raw.message ?? 'Query failed'
+      );
+    } catch (e) {
+      const executionMs = performance.now() - t0;
+      setQueryColumns([]);
+      setQueryRows([]);
+      setQueryMeta({ success: false, message: String(e), rowCount: 0, executionMs });
+      setStatusMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setIsExecuting(false);
-      onLoadingChange(false);
+      setLoading(false);
     }
   };
 
-  const clearResults = () => {
-    setQueryResult(null);
-    setGeneratedSQL('');
-    setPerformanceMetrics(null);
+  const handleExecute = () => {
+    if (!dbConnected || !generatedSQL.trim()) {
+      setStatusMessage('Connect to database and generate SQL first');
+      return;
+    }
+    const analysis = SQLSafetyAnalyzer.analyzeQuery(generatedSQL);
+    if (readOnlyLock && !analysis.isReadOnly) {
+      setPendingDestructive({ warnings: analysis.warnings });
+      return;
+    }
+    runQuery(generatedSQL);
   };
 
+  // Suggestions for @table tags
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     const position = e.target.selectionStart;
@@ -300,25 +242,19 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
 
     const beforeCursor = value.substring(0, position);
     const atIndex = beforeCursor.lastIndexOf('@');
-
     if (atIndex === -1) {
       setShowSuggestions(false);
       return;
     }
-
     const afterAt = beforeCursor.substring(atIndex + 1);
     if (afterAt.includes(' ') || afterAt.length === 0) {
       setShowSuggestions(false);
       return;
     }
-
     const filter = afterAt.toLowerCase();
-    const suggestions = availableTables.filter(table =>
-      table.toLowerCase().includes(filter)
-    );
-
-    if (suggestions.length > 0) {
-      setFilteredSuggestions(suggestions);
+    const matches = availableTables.filter(t => t.toLowerCase().includes(filter));
+    if (matches.length > 0) {
+      setFilteredSuggestions(matches);
       setShowSuggestions(true);
     } else {
       setShowSuggestions(false);
@@ -336,9 +272,8 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!showSuggestions) return;
-    if (e.key === 'Escape') {
-      setShowSuggestions(false);
-    } else if (e.key === 'Enter' && !e.shiftKey && filteredSuggestions.length > 0) {
+    if (e.key === 'Escape') setShowSuggestions(false);
+    else if (e.key === 'Enter' && !e.shiftKey && filteredSuggestions.length > 0) {
       e.preventDefault();
       handleSuggestionSelect(filteredSuggestions[0]);
     }
@@ -347,16 +282,15 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
   const copySQL = () => {
     if (!generatedSQL) return;
     navigator.clipboard.writeText(generatedSQL);
-    onStatusUpdate('SQL copied to clipboard');
+    setStatusMessage('SQL copied to clipboard');
   };
 
   const exportResults = () => {
-    if (!queryResult || queryResult.rows.length === 0) return;
+    if (queryRows.length === 0) return;
     const csv = [
-      queryResult.columns.map(csvEscape).join(','),
-      ...queryResult.rows.map(row => row.map(csvEscape).join(',')),
+      queryColumns.map(c => csvEscape(c.name)).join(','),
+      ...queryRows.map(row => row.map(c => csvEscape(cellText(c))).join(',')),
     ].join('\n');
-
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -364,15 +298,29 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
     a.download = 'query_results.csv';
     a.click();
     URL.revokeObjectURL(url);
-    onStatusUpdate('Results exported to CSV');
+    setStatusMessage('Results exported');
   };
+
+  const clearResults = () => {
+    setQueryRows([]);
+    setQueryColumns([]);
+    setQueryMeta(null);
+    setGeneratedSQL('');
+    setPerformanceMetrics(null);
+  };
+
+  // Paginate the rendered rows so huge result sets don't freeze the UI.
+  const totalPages = Math.max(1, Math.ceil(queryRows.length / PAGE_SIZE));
+  const visibleRows = useMemo(() => {
+    const start = page * PAGE_SIZE;
+    return queryRows.slice(start, start + PAGE_SIZE);
+  }, [queryRows, page]);
 
   const canGenerate = dbConnected && naturalQuery.trim().length > 0 && !isGenerating;
   const canExecute = dbConnected && generatedSQL.trim().length > 0 && !isExecuting;
 
   return (
     <div className="h-full flex flex-col bg-[#2d2d2d] rounded-lg border border-[#404040]">
-      {/* Header */}
       <div className="px-4 py-4 border-b border-[#404040] flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3 flex-wrap">
           <h3 className="m-0 text-white text-base font-semibold">Natural Language Query</h3>
@@ -381,15 +329,12 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
             onClick={toggleLock}
             title={
               readOnlyLock
-                ? 'Disable read-only mode - allows data modification'
-                : 'Enable read-only mode - protects database from modifications'
+                ? 'Disable to allow writes (INSERT/UPDATE/DELETE/DDL).'
+                : 'Enable to block any write/DDL.'
             }
           >
             {readOnlyLock ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
             <span>{readOnlyLock ? 'Read-Only' : 'Full Access'}</span>
-            {readOnlyLock && (
-              <span className="ml-1 px-1.5 py-0.5 bg-[#107c10] text-white text-xs rounded-full">ON</span>
-            )}
           </button>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -402,7 +347,7 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
           </button>
           <button
             className="btn btn-secondary btn-sm"
-            onClick={loadSchema}
+            onClick={refreshSchema}
             disabled={!dbConnected}
           >
             <RefreshCw className="w-4 h-4 mr-2" />
@@ -411,9 +356,7 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
         </div>
       </div>
 
-      {/* Body */}
       <div className="flex-1 px-4 py-4 overflow-y-auto min-h-0">
-        {/* Natural Language Input */}
         <div className="mb-5">
           <div className="text-sm font-semibold text-[#cccccc] mb-2">
             Natural Language Query (use @tablename to tag tables)
@@ -421,7 +364,7 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
           <div className="relative">
             <textarea
               className="w-full bg-[#1e1e1e] border border-[#404040] rounded-lg px-3 py-2 text-white placeholder-[#666666] resize-none focus:outline-none focus:border-[#0078d4]"
-              placeholder="Enter your question in plain English, e.g., 'Show me all users from @users table'"
+              placeholder="e.g., 'Show me all users from @users created last week'"
               value={naturalQuery}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
@@ -430,15 +373,15 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
             />
             {showSuggestions && filteredSuggestions.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-[#2d2d2d] border border-[#404040] rounded-lg max-h-48 overflow-y-auto z-20 shadow-xl">
-                {filteredSuggestions.map((table, index) => (
+                {filteredSuggestions.map((table, idx) => (
                   <div
                     key={table}
-                    className={`px-3 py-2 hover:bg-[#555555] cursor-pointer flex items-center gap-2 transition-colors ${index === 0 ? 'bg-[#3a3a3a]' : ''}`}
+                    className={`px-3 py-2 hover:bg-[#555555] cursor-pointer flex items-center gap-2 ${idx === 0 ? 'bg-[#3a3a3a]' : ''}`}
                     onClick={() => handleSuggestionSelect(table)}
                   >
                     <MessageSquare size={14} className="text-[#0078d4]" />
                     <span className="text-sm text-[#cccccc]">{table}</span>
-                    {index === 0 && (
+                    {idx === 0 && (
                       <span className="ml-auto text-xs text-[#888888]">Press Enter</span>
                     )}
                   </div>
@@ -448,14 +391,13 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
           </div>
           <button
             className="btn btn-primary mt-2"
-            onClick={generateSQL}
+            onClick={handleGenerate}
             disabled={!canGenerate}
           >
             {isGenerating ? 'Generating...' : 'Generate SQL'}
           </button>
         </div>
 
-        {/* Generated SQL */}
         {generatedSQL && (
           <div className="mb-5">
             <div className="flex items-center justify-between mb-2">
@@ -465,11 +407,11 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
                   <span className="px-2 py-1 rounded-full text-xs font-medium">
                     {performanceMetrics.approach === 'strategic' ? (
                       <span className="text-[#107c10] inline-flex items-center">
-                        <Zap className="w-3 h-3 mr-1" />Fast
+                        <Zap className="w-3 h-3 mr-1" />Filtered
                       </span>
                     ) : (
                       <span className="text-[#cccccc] inline-flex items-center">
-                        <Turtle className="w-3 h-3 mr-1" />Traditional
+                        <Turtle className="w-3 h-3 mr-1" />Full schema
                       </span>
                     )}
                   </span>
@@ -477,43 +419,51 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
               </div>
             </div>
             <div className="bg-[#1e1e1e] border border-[#404040] rounded-lg p-3">
-              <pre className="text-sm text-[#cccccc] whitespace-pre-wrap break-words font-mono m-0">{generatedSQL}</pre>
+              <pre className="text-sm text-[#cccccc] whitespace-pre-wrap break-words font-mono m-0">
+                {generatedSQL}
+              </pre>
               {performanceMetrics && (
-                <div className="mt-3 pt-3 border-t border-[#404040] text-xs text-[#cccccc]">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div><span className="text-[#888888]">Approach:</span> {performanceMetrics.approach}</div>
-                    <div>
-                      <span className="text-[#888888]">Tables:</span>{' '}
-                      {Array.isArray(performanceMetrics.tablesUsed)
-                        ? performanceMetrics.tablesUsed.join(', ')
-                        : performanceMetrics.tablesUsed}
-                    </div>
-                    <div><span className="text-[#888888]">Tokens:</span> {performanceMetrics.estimatedTokens.toLocaleString()}</div>
-                    <div><span className="text-[#888888]">Time:</span> {performanceMetrics.processingTime}</div>
+                <div className="mt-3 pt-3 border-t border-[#404040] text-xs text-[#cccccc] grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <span className="text-[#888888]">Approach:</span>{' '}
+                    {performanceMetrics.approach}
+                  </div>
+                  <div>
+                    <span className="text-[#888888]">Tables:</span>{' '}
+                    {Array.isArray(performanceMetrics.tablesUsed)
+                      ? performanceMetrics.tablesUsed.join(', ')
+                      : performanceMetrics.tablesUsed}
+                  </div>
+                  <div>
+                    <span className="text-[#888888]">Tokens (est):</span>{' '}
+                    {performanceMetrics.estimatedTokens.toLocaleString()}
+                  </div>
+                  <div>
+                    <span className="text-[#888888]">Provider:</span>{' '}
+                    {performanceMetrics.provider}
+                  </div>
+                  <div className="sm:col-span-2">
+                    <span className="text-[#888888]">Generated in:</span>{' '}
+                    <span className="text-white font-medium">
+                      {formatMs(performanceMetrics.generationMs)}
+                    </span>
                   </div>
                 </div>
               )}
               <div className="flex gap-2 mt-3 flex-wrap">
                 <button
                   className="btn btn-success"
-                  onClick={executeQuery}
+                  onClick={handleExecute}
                   disabled={!canExecute}
                 >
                   <Play className="w-4 h-4 mr-2" />
                   {isExecuting ? 'Executing...' : 'Execute Query'}
                 </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={copySQL}
-                  disabled={!generatedSQL}
-                >
+                <button className="btn btn-secondary" onClick={copySQL}>
                   <Copy className="w-4 h-4 mr-2" />
                   Copy SQL
                 </button>
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => setGeneratedSQL('')}
-                >
+                <button className="btn btn-secondary" onClick={() => setGeneratedSQL('')}>
                   Clear SQL
                 </button>
               </div>
@@ -521,70 +471,21 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
           </div>
         )}
 
-        {/* Query Results */}
-        {queryResult && (
-          <div className="mb-5">
-            <div className="text-sm font-semibold text-[#cccccc] mb-2 flex items-center gap-2">
-              <span>Query Results</span>
-              <span className="text-xs text-[#888888]">({queryResult.rowCount} rows)</span>
-            </div>
-
-            {queryResult.success ? (
-              queryResult.columns.length > 0 && queryResult.rows.length > 0 ? (
-                <div className="bg-[#1e1e1e] border border-[#404040] rounded-lg overflow-hidden flex flex-col">
-                  <div className="overflow-auto max-h-[50vh]">
-                    <table className="w-full text-sm border-collapse">
-                      <thead className="bg-[#2d2d2d] sticky top-0 z-10">
-                        <tr>
-                          {queryResult.columns.map(col => (
-                            <th
-                              key={col}
-                              className="px-3 py-2 text-left text-[#cccccc] font-medium border-b border-[#404040] whitespace-nowrap"
-                            >
-                              {col}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {queryResult.rows.map((row, idx) => (
-                          <tr key={idx} className="border-t border-[#404040] hover:bg-[#252525]">
-                            {row.map((cell, cellIdx) => (
-                              <td
-                                key={cellIdx}
-                                className="px-3 py-2 text-[#cccccc] max-w-xs overflow-hidden text-ellipsis whitespace-nowrap"
-                                title={cell}
-                              >
-                                {cell}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="flex gap-2 p-3 border-t border-[#404040] flex-wrap">
-                    <button className="btn btn-secondary" onClick={exportResults}>
-                      <Download className="w-4 h-4 mr-2" />
-                      Export CSV
-                    </button>
-                    <button className="btn btn-secondary" onClick={clearResults}>
-                      Clear Results
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-[#1e1e1e] border border-[#404040] rounded-lg px-4 py-6 text-center text-[#cccccc]">
-                  {queryResult.message ?? 'Query executed - no rows returned'}
-                </div>
-              )
-            ) : (
-              <div className="bg-[#d13438]/10 border border-[#d13438] rounded-lg px-4 py-4 text-[#d13438] whitespace-pre-wrap break-words">
-                {queryResult.message ?? 'Query execution failed'}
-              </div>
-            )}
-          </div>
+        {queryMeta && (
+          <ResultsBlock
+            success={queryMeta.success}
+            message={queryMeta.message}
+            rowCount={queryMeta.rowCount}
+            executionMs={queryMeta.executionMs}
+            columns={queryColumns}
+            visibleRows={visibleRows}
+            page={page}
+            totalPages={totalPages}
+            onPrev={() => setPage(p => Math.max(0, p - 1))}
+            onNext={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+            onExport={exportResults}
+            onClear={clearResults}
+          />
         )}
 
         {!dbConnected && (
@@ -600,7 +501,9 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>AI Provider Settings</h3>
-              <button className="modal-close" onClick={() => setShowSettings(false)}>×</button>
+              <button className="modal-close" onClick={() => setShowSettings(false)}>
+                ×
+              </button>
             </div>
             <div className="modal-body">
               <div className="form-group">
@@ -625,9 +528,6 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
                     onChange={e => setLmStudioEndpoint(e.target.value)}
                     placeholder={DEFAULT_LMSTUDIO_ENDPOINT}
                   />
-                  <p className="text-sm text-[#888888] mt-1">
-                    Enter the LM Studio native API endpoint for SQL generation
-                  </p>
                 </div>
               ) : (
                 <>
@@ -650,25 +550,63 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
                       onChange={e => setOpenRouterApiKey(e.target.value)}
                       placeholder="sk-or-v1-..."
                     />
+                    <p className="text-xs text-[#888888] mt-1">
+                      Stored in your OS keychain, not localStorage.
+                    </p>
                   </div>
                 </>
               )}
             </div>
             <div className="modal-footer">
-              <button
-                className={`btn ${provider === 'lmstudio' ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => switchProvider('lmstudio')}
-              >
-                Use LM Studio
+              <button className="btn btn-secondary" onClick={() => setShowSettings(false)}>
+                Cancel
               </button>
-              <button
-                className={`btn ${provider === 'openrouter' ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => switchProvider('openrouter')}
-              >
-                Use OpenRouter
-              </button>
-              <button className="btn btn-primary" onClick={handleSaveSettings}>
+              <button className="btn btn-primary" onClick={saveSettings}>
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Destructive query confirmation */}
+      {pendingDestructive && (
+        <div className="modal-overlay" onClick={() => setPendingDestructive(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5 text-[#d13438]" />
+                Read-only mode blocked this query
+              </h3>
+              <button className="modal-close" onClick={() => setPendingDestructive(null)}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="text-sm text-[#cccccc]">
+                The generated SQL appears to modify data or schema. You can disable
+                read-only mode to run it.
+              </p>
+              <ul className="mt-3 text-sm text-[#cccccc] list-disc pl-5 space-y-1">
+                {pendingDestructive.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setPendingDestructive(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={() => {
+                  setReadOnlyLock(false);
+                  const sql = generatedSQL;
+                  setPendingDestructive(null);
+                  runQuery(sql);
+                }}
+              >
+                Disable lock & run
               </button>
             </div>
           </div>
@@ -677,5 +615,143 @@ const NLQInterface: React.FC<NLQInterfaceProps> = ({
     </div>
   );
 };
+
+interface ResultsBlockProps {
+  success: boolean;
+  message?: string;
+  rowCount: number;
+  executionMs: number;
+  columns: TableColumn[];
+  visibleRows: Row[];
+  page: number;
+  totalPages: number;
+  onPrev: () => void;
+  onNext: () => void;
+  onExport: () => void;
+  onClear: () => void;
+}
+
+const ResultsBlock = React.memo<ResultsBlockProps>(
+  ({
+    success,
+    message,
+    rowCount,
+    executionMs,
+    columns,
+    visibleRows,
+    page,
+    totalPages,
+    onPrev,
+    onNext,
+    onExport,
+    onClear,
+  }) => {
+    if (!success) {
+      return (
+        <div className="mb-5">
+          <div className="text-sm font-semibold text-[#cccccc] mb-2 flex items-center gap-2">
+            <span>Query Results</span>
+            <span className="text-xs text-[#888888]">
+              (failed after {formatMs(executionMs)})
+            </span>
+          </div>
+          <div className="bg-[#d13438]/10 border border-[#d13438] rounded-lg px-4 py-4 text-[#d13438] whitespace-pre-wrap break-words">
+            {message ?? 'Query execution failed'}
+          </div>
+        </div>
+      );
+    }
+    if (rowCount === 0 || columns.length === 0) {
+      return (
+        <div className="mb-5">
+          <div className="text-sm font-semibold text-[#cccccc] mb-2 flex items-center gap-2">
+            <span>Query Results</span>
+            <span className="text-xs text-[#888888]">
+              (no rows · {formatMs(executionMs)})
+            </span>
+          </div>
+          <div className="bg-[#1e1e1e] border border-[#404040] rounded-lg px-4 py-6 text-center text-[#cccccc]">
+            {message ?? 'Query executed - no rows returned'}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mb-5">
+        <div className="text-sm font-semibold text-[#cccccc] mb-2 flex items-center gap-2">
+          <span>Query Results</span>
+          <span className="text-xs text-[#888888]">
+            ({rowCount} rows · {formatMs(executionMs)} · page {page + 1} of {totalPages})
+          </span>
+        </div>
+        <div className="bg-[#1e1e1e] border border-[#404040] rounded-lg overflow-hidden">
+          <div className="overflow-auto max-h-[50vh]">
+            <table className="w-full text-sm border-collapse">
+              <thead className="bg-[#2d2d2d] sticky top-0 z-10">
+                <tr>
+                  {columns.map(c => (
+                    <th
+                      key={c.name}
+                      className="px-3 py-2 text-left text-[#cccccc] font-medium border-b border-[#404040] whitespace-nowrap"
+                    >
+                      {c.name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRows.map((row, idx) => (
+                  <tr key={idx} className="border-t border-[#404040] hover:bg-[#252525]">
+                    {row.map((cell, cellIdx) => (
+                      <td
+                        key={cellIdx}
+                        className={`px-3 py-2 max-w-xs overflow-hidden text-ellipsis whitespace-nowrap ${cell === null ? 'text-[#666666] italic' : 'text-[#cccccc]'}`}
+                        title={cellText(cell)}
+                      >
+                        {cellText(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between p-3 border-t border-[#404040] flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={onPrev}
+                disabled={page === 0}
+              >
+                Previous
+              </button>
+              <span className="text-xs text-[#888888]">
+                {page + 1} / {totalPages}
+              </span>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={onNext}
+                disabled={page >= totalPages - 1}
+              >
+                Next
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button className="btn btn-secondary" onClick={onExport}>
+                <Download className="w-4 h-4 mr-2" />
+                Export CSV
+              </button>
+              <button className="btn btn-secondary" onClick={onClear}>
+                Clear Results
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+);
+ResultsBlock.displayName = 'ResultsBlock';
 
 export default NLQInterface;

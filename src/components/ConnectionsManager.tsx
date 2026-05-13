@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { safeInvoke } from '../utils/tauri';
+import React, { useEffect, useState } from 'react';
 import { Database, Server, HardDrive, User, Plus } from 'lucide-react';
-import '../App.css';
+import { api } from '../services/api';
+import { useDb } from '../store/DbContext';
 
-interface ConnectionConfig {
+interface ConnectionRecord {
   id: string;
   name: string;
   db_type: string;
@@ -11,200 +11,214 @@ interface ConnectionConfig {
   port: number;
   database: string;
   username: string;
+}
+
+interface FormState extends ConnectionRecord {
   password: string;
 }
 
-interface ConnectionsManagerProps {
-  onConnectionSelect: (connection: ConnectionConfig) => void;
-  onStatusUpdate: (message: string) => void;
-  onConnectionChange?: (connected: boolean, connectionName?: string) => void;
-  onCancel?: () => void;
+interface Props {
+  onClose: () => void;
 }
 
-const ConnectionsManager: React.FC<ConnectionsManagerProps> = ({
-  onConnectionSelect,
-  onStatusUpdate,
-  onConnectionChange,
-  onCancel
-}) => {
-  const [connections, setConnections] = useState<ConnectionConfig[]>([]);
-  const [showModal, setShowModal] = useState(false);
-  const [editingConnection, setEditingConnection] = useState<ConnectionConfig | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [formErrors, setFormErrors] = useState<Partial<Record<keyof ConnectionConfig, string>>>({});
-  const [formData, setFormData] = useState<ConnectionConfig>({
-    id: '',
-    name: '',
-    db_type: 'postgresql',
-    host: '',
-    port: 5432,
-    database: '',
-    username: '',
-    password: ''
-  });
+const STORAGE_KEY = 'intelquery_connections';
+const credentialAccount = (id: string) => `conn_${id}_password`;
 
+const defaultForm: FormState = {
+  id: '',
+  name: '',
+  db_type: 'postgresql',
+  host: '',
+  port: 5432,
+  database: '',
+  username: '',
+  password: '',
+};
+
+const ConnectionsManager: React.FC<Props> = ({ onClose }) => {
+  const { markConnected, setStatusMessage } = useDb();
+
+  const [connections, setConnections] = useState<ConnectionRecord[]>([]);
+  const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [formErrors, setFormErrors] = useState<Partial<Record<keyof FormState, string>>>({});
+  const [formData, setFormData] = useState<FormState>(defaultForm);
+
+  // Load + migrate any legacy plaintext passwords into the keyring.
   useEffect(() => {
-    loadConnections();
+    (async () => {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      let parsed: any[] = [];
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return;
+      }
+
+      const stripped: ConnectionRecord[] = [];
+      let migrated = false;
+      for (const c of parsed) {
+        if (c && typeof c === 'object' && c.id) {
+          if (typeof c.password === 'string' && c.password.length > 0) {
+            try {
+              await api.credentialSet(credentialAccount(c.id), c.password);
+              migrated = true;
+            } catch (e) {
+              console.warn('Keyring migration failed for', c.id, e);
+            }
+          }
+          const { password, ...rest } = c;
+          stripped.push(rest as ConnectionRecord);
+        }
+      }
+      setConnections(stripped);
+      if (migrated) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(stripped));
+      }
+    })();
   }, []);
 
-  const loadConnections = async () => {
-    try {
-      // Load saved connections from local storage
-      const saved = localStorage.getItem('intelquery_connections');
-      if (saved) {
-        setConnections(JSON.parse(saved));
-      }
-    } catch (error) {
-      console.error('Failed to load connections:', error);
-    }
+  const persist = (list: ConnectionRecord[]) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    setConnections(list);
   };
 
-  const saveConnections = async (connectionsList: ConnectionConfig[]) => {
-    try {
-      localStorage.setItem('intelquery_connections', JSON.stringify(connectionsList));
-      setConnections(connectionsList);
-      onStatusUpdate('Connections saved successfully');
-    } catch (error) {
-      onStatusUpdate(`Failed to save connections: ${error}`);
-    }
+  const resetForm = () => {
+    setFormData(defaultForm);
+    setEditingId(null);
+    setFormErrors({});
   };
 
-  const testConnection = async (connection: ConnectionConfig) => {
+  const openCreate = () => {
+    resetForm();
+    setShowModal(true);
+  };
+
+  const openEdit = async (conn: ConnectionRecord) => {
+    let password = '';
     try {
-      onStatusUpdate('Testing connection...');
-      const response = await safeInvoke('connect_database', {
-        dbType: connection.db_type,
-        host: connection.host,
-        port: connection.port,
-        database: connection.database,
-        username: connection.username,
-        password: connection.password
-      });
-      
-      const result = response as { success: boolean; message: string };
-      if (result.success) {
-        onStatusUpdate('Connection test successful');
-        onConnectionSelect(connection);
-        // Auto-update status after successful connection
-        if (onConnectionChange) {
-          onConnectionChange(true, connection.name);
-        }
-      } else {
-        onStatusUpdate(`Connection test failed: ${result.message}`);
-      }
-    } catch (error) {
-      onStatusUpdate(`Connection test error: ${error}`);
+      password = (await api.credentialGet(credentialAccount(conn.id))) ?? '';
+    } catch (e) {
+      console.warn('Could not load password from keyring', e);
     }
+    setFormData({ ...conn, password });
+    setEditingId(conn.id);
+    setFormErrors({});
+    setShowModal(true);
   };
 
   const deleteConnection = async (id: string) => {
-    const updatedConnections = connections.filter(conn => conn.id !== id);
-    await saveConnections(updatedConnections);
+    try {
+      await api.credentialDelete(credentialAccount(id));
+    } catch (e) {
+      console.warn('Failed to delete keyring entry', e);
+    }
+    persist(connections.filter(c => c.id !== id));
   };
 
   const validateForm = (): boolean => {
-    const errors: Partial<Record<keyof ConnectionConfig, string>> = {};
-    
-    if (!formData.name?.trim()) {
-      errors.name = 'Connection name is required';
-    }
-    
-    if (!formData.database?.trim()) {
-      errors.database = 'Database name is required';
-    }
-    
+    const errors: Partial<Record<keyof FormState, string>> = {};
+    if (!formData.name.trim()) errors.name = 'Connection name is required';
+    if (!formData.database.trim()) errors.database = 'Database name is required';
     if (formData.db_type !== 'sqlite') {
-      if (!formData.host?.trim()) {
-        errors.host = 'Host is required';
-      }
-      if (!formData.username?.trim()) {
-        errors.username = 'Username is required';
-      }
+      if (!formData.host.trim()) errors.host = 'Host is required';
+      if (!formData.username.trim()) errors.username = 'Username is required';
       if (!formData.port || formData.port <= 0 || formData.port > 65535) {
-        errors.port = 'Invalid port number';
+        errors.port = 'Invalid port';
       }
     }
-    
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
+  const connectAndStore = async (record: ConnectionRecord, password: string) => {
+    const resp = await api.connect({
+      dbType: record.db_type,
+      host: record.host,
+      port: record.port,
+      database: record.database,
+      username: record.username,
+      password,
+    });
+    return resp;
+  };
+
   const saveConnection = async () => {
-    console.log('Save connection clicked', formData);
-    
     if (!validateForm()) {
-      onStatusUpdate('Please fix the form errors before saving');
+      setStatusMessage('Please fix the form errors');
       return;
     }
-
     setIsConnecting(true);
-    
     try {
-      let connectionToSave: ConnectionConfig;
-      
-      if (editingConnection) {
-        // Update existing connection
-        connectionToSave = { ...formData, id: editingConnection.id };
-        const updatedConnections = connections.map(conn => 
-          conn.id === editingConnection.id ? connectionToSave : conn
-        );
-        await saveConnections(updatedConnections);
-      } else {
-        // Add new connection
-        connectionToSave = { ...formData, id: Date.now().toString() };
-        await saveConnections([...connections, connectionToSave]);
+      const id = editingId ?? Date.now().toString();
+      const record: ConnectionRecord = {
+        id,
+        name: formData.name,
+        db_type: formData.db_type,
+        host: formData.host,
+        port: formData.port,
+        database: formData.database,
+        username: formData.username,
+      };
+
+      // Store password in OS keychain (or remove if blank).
+      try {
+        if (formData.password) {
+          await api.credentialSet(credentialAccount(id), formData.password);
+        } else {
+          await api.credentialDelete(credentialAccount(id));
+        }
+      } catch (e) {
+        setStatusMessage(`Failed to store credential: ${e}`);
+        setIsConnecting(false);
+        return;
       }
 
-      // Auto-connect after saving
-      onStatusUpdate('Connecting to database...');
-      const response = await safeInvoke('connect_database', {
-        dbType: connectionToSave.db_type,
-        host: connectionToSave.host,
-        port: connectionToSave.port,
-        database: connectionToSave.database,
-        username: connectionToSave.username,
-        password: connectionToSave.password
-      });
-      
-      const result = response as { success: boolean; message: string };
-      if (result.success) {
-        onStatusUpdate('Connection saved and connected successfully!');
-        onConnectionSelect(connectionToSave);
-        // Auto-update status after successful connection
-        if (onConnectionChange) {
-          onConnectionChange(true, connectionToSave.name);
-        }
+      // Update the saved list.
+      const list = editingId
+        ? connections.map(c => (c.id === id ? record : c))
+        : [...connections, record];
+      persist(list);
+
+      // Auto-connect.
+      setStatusMessage('Connecting...');
+      const resp = await connectAndStore(record, formData.password);
+      if (resp.success) {
+        setStatusMessage('Connected');
+        await markConnected(record.name);
         setShowModal(false);
         resetForm();
+        onClose();
       } else {
-        onStatusUpdate(`Connection saved but failed to connect: ${result.message}`);
+        setStatusMessage(`Connection failed: ${resp.message}`);
       }
-    } catch (error) {
-      console.error('Save connection error:', error);
-      onStatusUpdate(`Failed to save connection: ${error}`);
+    } catch (e) {
+      setStatusMessage(`Failed to save: ${e}`);
     } finally {
       setIsConnecting(false);
     }
   };
 
-  const resetForm = () => {
-    setFormData({
-      id: '',
-      name: '',
-      db_type: 'postgresql',
-      host: '',
-      port: 5432,
-      database: '',
-      username: '',
-      password: ''
-    });
-    setEditingConnection(null);
-  };
-
-  const editConnection = (connection: ConnectionConfig) => {
-    setFormData(connection);
-    setEditingConnection(connection);
-    setShowModal(true);
+  const testAndConnect = async (record: ConnectionRecord) => {
+    setIsConnecting(true);
+    try {
+      const password = (await api.credentialGet(credentialAccount(record.id))) ?? '';
+      setStatusMessage('Connecting...');
+      const resp = await connectAndStore(record, password);
+      if (resp.success) {
+        setStatusMessage('Connected');
+        await markConnected(record.name);
+        onClose();
+      } else {
+        setStatusMessage(`Connection failed: ${resp.message}`);
+      }
+    } catch (e) {
+      setStatusMessage(`Error: ${e}`);
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   return (
@@ -212,12 +226,11 @@ const ConnectionsManager: React.FC<ConnectionsManagerProps> = ({
       <div className="connections-header">
         <div>
           <h3>Saved Connections</h3>
-          <p className="connections-subtitle">Manage your database connections</p>
+          <p className="connections-subtitle">
+            Credentials are stored in your OS keychain.
+          </p>
         </div>
-        <button 
-          className="btn btn-primary"
-          onClick={() => setShowModal(true)}
-        >
+        <button className="btn btn-primary" onClick={openCreate}>
           <Plus className="w-4 h-4 mr-2" />
           Add Connection
         </button>
@@ -239,39 +252,41 @@ const ConnectionsManager: React.FC<ConnectionsManagerProps> = ({
                   <div className="connection-type-badge">{connection.db_type}</div>
                 </div>
                 <div className="connection-details">
-                  <span className="connection-detail-item">
-                    <Server className="detail-icon" size={16} />
-                    {connection.host}:{connection.port}
-                  </span>
+                  {connection.db_type !== 'sqlite' && (
+                    <span className="connection-detail-item">
+                      <Server className="detail-icon" size={16} />
+                      {connection.host}:{connection.port}
+                    </span>
+                  )}
                   <span className="connection-detail-item">
                     <HardDrive className="detail-icon" size={16} />
                     {connection.database}
                   </span>
-                  <span className="connection-detail-item">
-                    <User className="detail-icon" size={16} />
-                    {connection.username}
-                  </span>
+                  {connection.db_type !== 'sqlite' && (
+                    <span className="connection-detail-item">
+                      <User className="detail-icon" size={16} />
+                      {connection.username}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="connection-actions">
-                <button 
+                <button
                   className="btn btn-success btn-sm"
-                  onClick={() => testConnection(connection)}
-                  title="Test and connect to this database"
+                  onClick={() => testAndConnect(connection)}
+                  disabled={isConnecting}
                 >
                   Connect
                 </button>
-                <button 
+                <button
                   className="btn btn-secondary btn-sm"
-                  onClick={() => editConnection(connection)}
-                  title="Edit connection settings"
+                  onClick={() => openEdit(connection)}
                 >
                   Edit
                 </button>
-                <button 
+                <button
                   className="btn btn-danger btn-sm"
                   onClick={() => deleteConnection(connection.id)}
-                  title="Delete this connection"
                 >
                   Delete
                 </button>
@@ -282,15 +297,21 @@ const ConnectionsManager: React.FC<ConnectionsManagerProps> = ({
       </div>
 
       {showModal && (
-        <div className="modal-overlay">
-          <div className="modal">
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{editingConnection ? 'Edit Connection' : 'Add Connection'}</h3>
-              <button className="modal-close" onClick={() => { resetForm(); onCancel?.(); }}>
+              <h3>{editingId ? 'Edit Connection' : 'Add Connection'}</h3>
+              <button
+                className="modal-close"
+                onClick={() => {
+                  setShowModal(false);
+                  resetForm();
+                }}
+              >
                 ×
               </button>
             </div>
-            
+
             <div className="modal-body">
               <div className="form-section">
                 <div className="form-section-title">Basic Information</div>
@@ -299,8 +320,8 @@ const ConnectionsManager: React.FC<ConnectionsManagerProps> = ({
                   <input
                     type="text"
                     className="form-input"
-                    value={formData.name || ''}
-                    onChange={(e) => {
+                    value={formData.name}
+                    onChange={e => {
                       setFormData(prev => ({ ...prev, name: e.target.value }));
                       setFormErrors(prev => ({ ...prev, name: '' }));
                     }}
@@ -313,15 +334,15 @@ const ConnectionsManager: React.FC<ConnectionsManagerProps> = ({
                   <label>Database Type</label>
                   <select
                     className="form-input"
-                    value={formData.db_type || 'postgresql'}
-                    onChange={(e) => {
-                      setFormData(prev => ({ ...prev, db_type: e.target.value }));
-                      // Reset port to default when changing DB type
-                      if (e.target.value === 'postgresql') {
-                        setFormData(prev => ({ ...prev, port: 5432 }));
-                      } else if (e.target.value === 'mysql') {
-                        setFormData(prev => ({ ...prev, port: 3306 }));
-                      }
+                    value={formData.db_type}
+                    onChange={e => {
+                      const next = e.target.value;
+                      setFormData(prev => ({
+                        ...prev,
+                        db_type: next,
+                        port:
+                          next === 'postgresql' ? 5432 : next === 'mysql' ? 3306 : prev.port,
+                      }));
                     }}
                   >
                     <option value="postgresql">PostgreSQL</option>
@@ -334,14 +355,14 @@ const ConnectionsManager: React.FC<ConnectionsManagerProps> = ({
               {formData.db_type !== 'sqlite' && (
                 <div className="form-section">
                   <div className="form-section-title">Server Details</div>
-                  <div className="form-row">
-                    <div className="form-group">
+                  <div className="form-row flex gap-3">
+                    <div className="form-group flex-1">
                       <label>Host *</label>
                       <input
                         type="text"
                         className="form-input"
-                        value={formData.host || ''}
-                        onChange={(e) => {
+                        value={formData.host}
+                        onChange={e => {
                           setFormData(prev => ({ ...prev, host: e.target.value }));
                           setFormErrors(prev => ({ ...prev, host: '' }));
                         }}
@@ -349,17 +370,19 @@ const ConnectionsManager: React.FC<ConnectionsManagerProps> = ({
                       />
                       {formErrors.host && <span className="form-error">{formErrors.host}</span>}
                     </div>
-                    <div className="form-group">
+                    <div className="form-group" style={{ maxWidth: 120 }}>
                       <label>Port *</label>
                       <input
                         type="number"
                         className="form-input"
-                        value={formData.port || 5432}
-                        onChange={(e) => {
-                          setFormData(prev => ({ ...prev, port: parseInt(e.target.value) }));
+                        value={formData.port}
+                        onChange={e => {
+                          setFormData(prev => ({
+                            ...prev,
+                            port: parseInt(e.target.value) || 0,
+                          }));
                           setFormErrors(prev => ({ ...prev, port: '' }));
                         }}
-                        placeholder="5432"
                       />
                       {formErrors.port && <span className="form-error">{formErrors.port}</span>}
                     </div>
@@ -374,40 +397,44 @@ const ConnectionsManager: React.FC<ConnectionsManagerProps> = ({
                   <input
                     type="text"
                     className="form-input"
-                    value={formData.database || ''}
-                    onChange={(e) => {
+                    value={formData.database}
+                    onChange={e => {
                       setFormData(prev => ({ ...prev, database: e.target.value }));
                       setFormErrors(prev => ({ ...prev, database: '' }));
                     }}
-                    placeholder="mydatabase"
+                    placeholder={formData.db_type === 'sqlite' ? '/path/to/file.db' : 'mydatabase'}
                   />
-                  {formErrors.database && <span className="form-error">{formErrors.database}</span>}
+                  {formErrors.database && (
+                    <span className="form-error">{formErrors.database}</span>
+                  )}
                 </div>
 
                 {formData.db_type !== 'sqlite' && (
-                  <div className="form-row">
-                    <div className="form-group">
+                  <div className="form-row flex gap-3">
+                    <div className="form-group flex-1">
                       <label>Username *</label>
                       <input
                         type="text"
                         className="form-input"
-                        value={formData.username || ''}
-                        onChange={(e) => {
+                        value={formData.username}
+                        onChange={e => {
                           setFormData(prev => ({ ...prev, username: e.target.value }));
                           setFormErrors(prev => ({ ...prev, username: '' }));
                         }}
-                        placeholder="postgres"
                       />
-                      {formErrors.username && <span className="form-error">{formErrors.username}</span>}
+                      {formErrors.username && (
+                        <span className="form-error">{formErrors.username}</span>
+                      )}
                     </div>
-                    <div className="form-group">
+                    <div className="form-group flex-1">
                       <label>Password</label>
                       <input
                         type="password"
                         className="form-input"
-                        value={formData.password || ''}
-                        onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-                        placeholder="password"
+                        value={formData.password}
+                        onChange={e =>
+                          setFormData(prev => ({ ...prev, password: e.target.value }))
+                        }
                       />
                     </div>
                   </div>
@@ -416,28 +443,26 @@ const ConnectionsManager: React.FC<ConnectionsManagerProps> = ({
             </div>
 
             <div className="modal-footer">
-              <button 
+              <button
                 className="btn btn-secondary"
-                onClick={() => { resetForm(); onCancel?.(); }}
+                onClick={() => {
+                  setShowModal(false);
+                  resetForm();
+                }}
                 disabled={isConnecting}
               >
                 Cancel
               </button>
-              <button 
-                className={`btn ${isConnecting ? 'btn-loading' : 'btn-primary'}`}
+              <button
+                className="btn btn-primary"
                 onClick={saveConnection}
                 disabled={isConnecting}
               >
-                {isConnecting ? (
-                  <>
-                    <span className="loading-spinner"></span>
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    {editingConnection ? 'Update' : 'Save'} & Connect
-                  </>
-                )}
+                {isConnecting
+                  ? 'Connecting...'
+                  : editingId
+                  ? 'Update & Connect'
+                  : 'Save & Connect'}
               </button>
             </div>
           </div>
