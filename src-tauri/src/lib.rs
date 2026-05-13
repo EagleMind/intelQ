@@ -56,11 +56,6 @@ pub struct TablesResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SchemaResponse {
-    pub schema: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryRequest {
     pub sql_query: String,
 }
@@ -764,27 +759,11 @@ async fn get_tables(state: tauri::State<'_, AppState>) -> Result<TablesResponse,
 }
 
 #[tauri::command]
-async fn get_schema(state: tauri::State<'_, AppState>) -> Result<SchemaResponse, String> {
+async fn get_schema(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let guard = state.db_pool.lock().await;
-
-    let pool_type = match &*guard {
-        DatabasePool::None => "None",
-        DatabasePool::Sqlite(_) => "SQLite",
-        DatabasePool::Postgres(_) => "PostgreSQL",
-        DatabasePool::MySQL(_) => "MySQL",
-    };
-    println!("DEBUG: get_schema called with pool type: {}", pool_type);
-
     DatabaseManager::get_schema(&*guard)
         .await
-        .map(|schema| {
-            println!("DEBUG: Schema retrieved, length: {}", schema.len());
-            SchemaResponse { schema }
-        })
-        .map_err(|e| {
-            println!("DEBUG: get_schema error: {}", e);
-            format!("Failed to get schema: {}", e)
-        })
+        .map_err(|e| format!("Failed to get schema: {}", e))
 }
 
 #[tauri::command]
@@ -793,7 +772,23 @@ async fn execute_query(
     state: tauri::State<'_, AppState>,
 ) -> Result<QueryResult, String> {
     let guard = state.db_pool.lock().await;
-    DatabaseManager::execute_query(&*guard, &request.sql_query)
+    
+    // Check if database is connected
+    let pool_ref = &*guard;
+    match pool_ref {
+        DatabasePool::None => {
+            return Ok(QueryResult {
+                success: false,
+                columns: None,
+                rows: None,
+                message: Some("No database connection established".to_string()),
+                row_count: Some(0),
+            });
+        }
+        _ => {}
+    }
+    
+    DatabaseManager::execute_query(pool_ref, &request.sql_query)
         .await
         .map_err(|e| format!("Query execution failed: {}", e))
 }
