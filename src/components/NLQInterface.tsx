@@ -13,7 +13,13 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { api } from '../services/api';
-import { generateSql, parseTableTags, type LlmConfig, type Provider } from '../services/llm';
+import {
+  generateSql,
+  parseTableTags,
+  NotSqlRequestError,
+  type LlmConfig,
+  type Provider,
+} from '../services/llm';
 import { useDb } from '../store/DbContext';
 import { SQLSafetyAnalyzer } from '../utils/sqlSafetyAnalyzer';
 import type { QueryResult, Row, TableColumn } from '../types/api';
@@ -179,7 +185,15 @@ const NLQInterface: React.FC = () => {
       });
       setStatusMessage(`SQL generated in ${formatMs(generationMs)} (${approach})`);
     } catch (e) {
-      setStatusMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      if (e instanceof NotSqlRequestError) {
+        setGeneratedSQL('');
+        setPerformanceMetrics(null);
+        setStatusMessage(
+          `Not a SQL request (${e.reason}). Ask about your tables, columns, or data.`
+        );
+      } else {
+        setStatusMessage(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      }
     } finally {
       setIsGenerating(false);
       setLoading(false);
