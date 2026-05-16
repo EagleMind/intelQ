@@ -3,7 +3,6 @@ import {
   MessageSquare,
   Play,
   Copy,
-  Download,
   RefreshCw,
   Zap,
   Turtle,
@@ -12,6 +11,7 @@ import {
   Unlock,
   ShieldAlert,
 } from 'lucide-react';
+import ExportDropdown from './ExportDropdown';
 import { api } from '../services/api';
 import {
   generateSql,
@@ -38,9 +38,6 @@ interface PerformanceMetrics {
   generationMs: number;
   provider: string;
 }
-
-const csvEscape = (v: string) =>
-  /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 
 const cellText = (v: string | null) => (v === null ? 'NULL' : v);
 
@@ -299,20 +296,8 @@ const NLQInterface: React.FC = () => {
     setStatusMessage('SQL copied to clipboard');
   };
 
-  const exportResults = () => {
-    if (queryRows.length === 0) return;
-    const csv = [
-      queryColumns.map(c => csvEscape(c.name)).join(','),
-      ...queryRows.map(row => row.map(c => csvEscape(cellText(c))).join(',')),
-    ].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'query_results.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-    setStatusMessage('Results exported');
+  const handleExported = (format: string) => {
+    setStatusMessage(`Results exported as ${format.toUpperCase()}`);
   };
 
   const clearResults = () => {
@@ -493,11 +478,12 @@ const NLQInterface: React.FC = () => {
             executionMs={queryMeta.executionMs}
             columns={queryColumns}
             visibleRows={visibleRows}
+            allRows={queryRows}
             page={page}
             totalPages={totalPages}
             onPrev={() => setPage(p => Math.max(0, p - 1))}
             onNext={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-            onExport={exportResults}
+            onExported={handleExported}
             onClear={clearResults}
           />
         )}
@@ -637,11 +623,12 @@ interface ResultsBlockProps {
   executionMs: number;
   columns: TableColumn[];
   visibleRows: Row[];
+  allRows: Row[];
   page: number;
   totalPages: number;
   onPrev: () => void;
   onNext: () => void;
-  onExport: () => void;
+  onExported: (format: string) => void;
   onClear: () => void;
 }
 
@@ -653,11 +640,12 @@ const ResultsBlock = React.memo<ResultsBlockProps>(
     executionMs,
     columns,
     visibleRows,
+    allRows,
     page,
     totalPages,
     onPrev,
     onNext,
-    onExport,
+    onExported,
     onClear,
   }) => {
     if (!success) {
@@ -752,10 +740,10 @@ const ResultsBlock = React.memo<ResultsBlockProps>(
               </button>
             </div>
             <div className="flex gap-2">
-              <button className="btn btn-secondary" onClick={onExport}>
-                <Download className="w-4 h-4 mr-2" />
-                Export CSV
-              </button>
+              <ExportDropdown
+                payload={{ columns, rows: allRows }}
+                onExported={onExported}
+              />
               <button className="btn btn-secondary" onClick={onClear}>
                 Clear Results
               </button>
