@@ -77,6 +77,7 @@ const NLQInterface: React.FC = () => {
 
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
+  const [activeSuggestion, setActiveSuggestion] = useState(0);
   const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -269,6 +270,7 @@ const NLQInterface: React.FC = () => {
     const matches = availableTables.filter(t => t.toLowerCase().includes(filter));
     if (matches.length > 0) {
       setFilteredSuggestions(matches);
+      setActiveSuggestion(0);
       setShowSuggestions(true);
     } else {
       setShowSuggestions(false);
@@ -286,10 +288,17 @@ const NLQInterface: React.FC = () => {
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!showSuggestions) return;
-    if (e.key === 'Escape') setShowSuggestions(false);
-    else if (e.key === 'Enter' && !e.shiftKey && filteredSuggestions.length > 0) {
+    if (e.key === 'Escape') {
+      setShowSuggestions(false);
+    } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      handleSuggestionSelect(filteredSuggestions[0]);
+      setActiveSuggestion(i => (i + 1) % filteredSuggestions.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveSuggestion(i => (i - 1 + filteredSuggestions.length) % filteredSuggestions.length);
+    } else if (e.key === 'Enter' && !e.shiftKey && filteredSuggestions.length > 0) {
+      e.preventDefault();
+      handleSuggestionSelect(filteredSuggestions[activeSuggestion]);
     }
   };
 
@@ -390,12 +399,13 @@ const NLQInterface: React.FC = () => {
                 {filteredSuggestions.map((table, idx) => (
                   <div
                     key={table}
-                    className={`px-3 py-2 hover:bg-[#555555] cursor-pointer flex items-center gap-2 ${idx === 0 ? 'bg-[#3a3a3a]' : ''}`}
+                    className={`px-3 py-2 cursor-pointer flex items-center gap-2 ${idx === activeSuggestion ? 'bg-[#3a3a3a]' : 'hover:bg-[#555555]'}`}
+                    onMouseEnter={() => setActiveSuggestion(idx)}
                     onClick={() => handleSuggestionSelect(table)}
                   >
                     <MessageSquare size={14} className="text-[#0078d4]" />
                     <span className="text-sm text-[#cccccc]">{table}</span>
-                    {idx === 0 && (
+                    {idx === activeSuggestion && (
                       <span className="ml-auto text-xs text-[#888888]">Press Enter</span>
                     )}
                   </div>
