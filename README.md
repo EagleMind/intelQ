@@ -4,6 +4,7 @@
 
 Connect to MySQL, PostgreSQL, or SQLite, describe what you want to know in natural language, and let an AI generate the SQL for you. Review the query, execute it, and see the results — all in a single desktop app that runs locally.
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Status](https://img.shields.io/badge/status-active-success.svg)](https://github.com/EagleMind/intelQ) 
 ---
 
 ## What it does
