@@ -243,18 +243,3 @@ cargo check            # (in src-tauri/) type-check the backend
 - 2–3 GB free disk for the Cargo build cache
 
 ---
-
-## License
-
-Proprietary.
-
-## Version history
-
-### 0.1.0
-- Initial release
-- Natural-language SQL generation (LM Studio, OpenRouter)
-- MySQL / PostgreSQL / SQLite support
-- Read-only enforcement with safety analyzer
-- OS-keychain credential storage
-- Paginated results, CSV export
-- Live generation + execution timing
