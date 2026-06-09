@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import { api } from '../services/api';
+import { sync } from '../services/sync';
 
 interface DbStatus {
   connected: boolean;
@@ -20,6 +21,8 @@ interface DbContextValue {
   schema: string;
   statusMessage: string;
   isLoading: boolean;
+  /** True until the initial backend connection probe resolves. */
+  initializing: boolean;
   readOnlyLock: boolean;
   setStatusMessage: (m: string) => void;
   setLoading: (b: boolean) => void;
@@ -37,6 +40,7 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [schema, setSchema] = useState<string>('');
   const [statusMessage, setStatusMessage] = useState<string>('Ready');
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [initializing, setInitializing] = useState<boolean>(true);
   const [readOnlyLock, setReadOnlyLockState] = useState<boolean>(true);
 
   const loadCountRef = useRef(0);
@@ -45,15 +49,35 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     setIsLoading(loadCountRef.current > 0);
   }, []);
 
-  // Load read-only lock from storage on mount.
+  // Load read-only lock from the local SQLite store on mount, migrating any
+  // legacy localStorage value.
   useEffect(() => {
-    const raw = localStorage.getItem('readOnlyLock');
-    setReadOnlyLockState(raw === null ? true : raw === 'true');
+    (async () => {
+      const legacy = localStorage.getItem('readOnlyLock');
+      if (legacy !== null) {
+        try {
+          if ((await sync.getSetting('readOnlyLock')) === null) {
+            await sync.setSetting('readOnlyLock', legacy);
+          }
+        } catch {
+          // ignore
+        }
+        localStorage.removeItem('readOnlyLock');
+      }
+      try {
+        const raw = await sync.getSetting('readOnlyLock');
+        setReadOnlyLockState(raw === null ? true : raw === 'true');
+      } catch {
+        setReadOnlyLockState(true);
+      }
+    })();
   }, []);
 
   const setReadOnlyLock = useCallback((b: boolean) => {
     setReadOnlyLockState(b);
-    localStorage.setItem('readOnlyLock', b.toString());
+    sync.setSetting('readOnlyLock', b.toString()).catch(() => {
+      // best-effort persistence
+    });
   }, []);
 
   const loadSchemaAndTables = useCallback(async () => {
@@ -112,6 +136,8 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         }
       } catch {
         // ignore — backend not ready or no connection
+      } finally {
+        setInitializing(false);
       }
     })();
   }, [markConnected]);
@@ -123,6 +149,7 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       schema,
       statusMessage,
       isLoading,
+      initializing,
       readOnlyLock,
       setStatusMessage,
       setLoading,
@@ -137,6 +164,7 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       schema,
       statusMessage,
       isLoading,
+      initializing,
       readOnlyLock,
       setLoading,
       setReadOnlyLock,

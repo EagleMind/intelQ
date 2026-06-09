@@ -98,9 +98,9 @@ const DataExplorer: React.FC = () => {
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#2d2d2d] rounded-lg border border-[#404040]">
-      <div className="px-4 py-4 border-b border-[#404040] flex items-center gap-3">
-        <h3 className="m-0 text-white text-base font-semibold">Data Explorer</h3>
+    <div className="h-full flex flex-col bg-card rounded-lg border border-border">
+      <div className="px-4 py-4 border-b border-border flex items-center gap-3">
+        <h3 className="m-0 text-foreground text-base font-semibold">Data Explorer</h3>
         <button
           className="btn btn-secondary btn-sm"
           onClick={refreshSchema}
@@ -113,17 +113,17 @@ const DataExplorer: React.FC = () => {
 
       <div className="flex-1 px-4 py-4 overflow-y-auto min-h-0">
         {!dbConnected ? (
-          <div className="text-center text-[#cccccc] py-8">
+          <div className="text-center text-muted-foreground py-8">
             Connect to a database to explore tables
           </div>
         ) : tables.length === 0 ? (
-          <div className="text-center text-[#cccccc] py-8">No tables found</div>
+          <div className="text-center text-muted-foreground py-8">No tables found</div>
         ) : (
           <div className="space-y-1">
             {tables.map(table => (
               <div
                 key={table}
-                className="px-3 py-2 text-sm font-medium hover:bg-[#555555] transition-colors cursor-pointer text-left rounded"
+                className="px-3 py-2 text-sm font-medium hover:bg-accent transition-colors cursor-pointer text-left rounded"
                 onClick={() => loadTableData(table)}
               >
                 {table}

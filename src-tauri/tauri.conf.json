@@ -31,6 +31,7 @@
         "minWidth": 800,
         "minHeight": 600,
         "resizable": true,
+        "maximized": true,
         "center": true,
         "decorations": true,
         "alwaysOnTop": false,

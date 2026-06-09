@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Database, Server, HardDrive, User, Plus } from 'lucide-react';
 import { api } from '../services/api';
+import { sync } from '../services/sync';
 import { useDb } from '../store/DbContext';
 
 interface ConnectionRecord {
@@ -45,44 +46,48 @@ const ConnectionsManager: React.FC<Props> = ({ onClose }) => {
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [formData, setFormData] = useState<FormState>(defaultForm);
 
-  // Load + migrate any legacy plaintext passwords into the keyring.
+  // One-time migration of any legacy localStorage connections into the local
+  // SQLite store (plaintext passwords are pushed into the OS keychain), then
+  // load from SQLite. Once migrated the localStorage key is removed.
   useEffect(() => {
     (async () => {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      let parsed: any[] = [];
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        return;
-      }
-
-      const stripped: ConnectionRecord[] = [];
-      let migrated = false;
-      for (const c of parsed) {
-        if (c && typeof c === 'object' && c.id) {
-          if (typeof c.password === 'string' && c.password.length > 0) {
+      if (raw) {
+        let parsed: any[] = [];
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          parsed = [];
+        }
+        for (const c of parsed) {
+          if (c && typeof c === 'object' && c.id) {
+            if (typeof c.password === 'string' && c.password.length > 0) {
+              try {
+                await api.credentialSet(credentialAccount(c.id), c.password);
+              } catch (e) {
+                console.warn('Keyring migration failed for', c.id, e);
+              }
+            }
+            const { password, ...rest } = c;
             try {
-              await api.credentialSet(credentialAccount(c.id), c.password);
-              migrated = true;
+              await sync.saveConnection(rest as ConnectionRecord);
             } catch (e) {
-              console.warn('Keyring migration failed for', c.id, e);
+              console.warn('Failed to migrate connection', c.id, e);
             }
           }
-          const { password, ...rest } = c;
-          stripped.push(rest as ConnectionRecord);
         }
+        localStorage.removeItem(STORAGE_KEY);
       }
-      setConnections(stripped);
-      if (migrated) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(stripped));
-      }
+      await reload();
     })();
   }, []);
 
-  const persist = (list: ConnectionRecord[]) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-    setConnections(list);
+  const reload = async () => {
+    try {
+      setConnections(await sync.listConnections());
+    } catch (e) {
+      console.warn('Failed to load connections', e);
+    }
   };
 
   const resetForm = () => {
@@ -115,7 +120,12 @@ const ConnectionsManager: React.FC<Props> = ({ onClose }) => {
     } catch (e) {
       console.warn('Failed to delete keyring entry', e);
     }
-    persist(connections.filter(c => c.id !== id));
+    try {
+      await sync.deleteConnection(id);
+    } catch (e) {
+      console.warn('Failed to delete connection', e);
+    }
+    await reload();
   };
 
   const validateForm = (): boolean => {
@@ -176,11 +186,9 @@ const ConnectionsManager: React.FC<Props> = ({ onClose }) => {
         return;
       }
 
-      // Update the saved list.
-      const list = editingId
-        ? connections.map(c => (c.id === id ? record : c))
-        : [...connections, record];
-      persist(list);
+      // Persist to the local SQLite store and refresh the list.
+      await sync.saveConnection(record);
+      await reload();
 
       // Auto-connect.
       setStatusMessage('Connecting...');

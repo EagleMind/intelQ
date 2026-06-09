@@ -9,8 +9,15 @@ use sqlx::sqlite::{SqlitePool, SqliteRow};
 use sqlx::types::chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use sqlx::{Column, Row};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tauri::Manager;
+
+mod appdb;
+mod sync;
+
+use appdb::ConnectionRecord;
 
 // ---------------------------------------------------------------------------
 // Pool enum (Clone is cheap: each variant wraps an Arc internally)
@@ -86,13 +93,20 @@ impl SchemaCache {
 struct AppState {
     db_pool: Arc<RwLock<DatabasePool>>,
     schema: Arc<RwLock<Option<SchemaCache>>>,
+    /// Local-first app-data store (saved connections + settings). Behind a
+    /// RwLock so a R2 restore can close and reopen it (swap the file).
+    app_db: Arc<RwLock<sqlx::SqlitePool>>,
+    /// Path to the app-data SQLite file (for restore swaps + .bak).
+    app_db_path: PathBuf,
 }
 
 impl AppState {
-    fn new() -> Self {
+    fn new(app_db: sqlx::SqlitePool, app_db_path: PathBuf) -> Self {
         Self {
             db_pool: Arc::new(RwLock::new(DatabasePool::None)),
             schema: Arc::new(RwLock::new(None)),
+            app_db: Arc::new(RwLock::new(app_db)),
+            app_db_path,
         }
     }
 
@@ -103,6 +117,11 @@ impl AppState {
             DatabasePool::None => Err("No database connection".into()),
             other => Ok(other),
         }
+    }
+
+    /// Cheap clone of the app-data pool (sqlx pools are Arc-backed).
+    async fn app_db(&self) -> sqlx::SqlitePool {
+        self.app_db.read().await.clone()
     }
 }
 
@@ -768,7 +787,7 @@ fn query_result_ok(columns: Vec<TableColumn>, values: Vec<Vec<Option<String>>>) 
 
 const KEYRING_SERVICE: &str = "intelquery";
 
-fn keyring_entry(account: &str) -> Result<keyring::Entry, String> {
+pub(crate) fn keyring_entry(account: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| e.to_string())
 }
 
@@ -973,6 +992,136 @@ fn credential_delete(account: String) -> std::result::Result<(), String> {
     }
 }
 
+// -------- Local app-data store (connections + settings) -------- //
+
+#[tauri::command]
+async fn appdb_list_connections(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<ConnectionRecord>, String> {
+    let pool = state.app_db().await;
+    appdb::list_connections(&pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn appdb_save_connection(
+    record: ConnectionRecord,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let pool = state.app_db().await;
+    appdb::save_connection(&pool, &record)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn appdb_delete_connection(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let pool = state.app_db().await;
+    appdb::delete_connection(&pool, &id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn appdb_get_setting(
+    key: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Option<String>, String> {
+    let pool = state.app_db().await;
+    appdb::get_setting(&pool, &key)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn appdb_set_setting(
+    key: String,
+    value: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let pool = state.app_db().await;
+    appdb::set_setting(&pool, &key, &value)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn appdb_get_settings(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<HashMap<String, String>, String> {
+    let pool = state.app_db().await;
+    appdb::get_settings(&pool).await.map_err(|e| e.to_string())
+}
+
+// -------- Cloudflare R2 backup / restore -------- //
+
+#[tauri::command]
+async fn r2_save_config(
+    account_id: String,
+    bucket: String,
+    access_key_id: String,
+    secret_access_key: String,
+    endpoint: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let pool = state.app_db().await;
+    sync::save_config(&pool, &account_id, &bucket, &access_key_id, &secret_access_key, endpoint)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn r2_get_config(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Option<sync::R2Config>, String> {
+    let pool = state.app_db().await;
+    sync::get_config(&pool).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn r2_clear_config(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let pool = state.app_db().await;
+    sync::clear_config(&pool).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn r2_test_connection(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let pool = state.app_db().await;
+    sync::test_connection(&pool).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn r2_backup(
+    passphrase: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<sync::BackupResult, String> {
+    sync::backup(&state, &passphrase).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn r2_restore(
+    passphrase: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    sync::restore(&state, &passphrase).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_external_url(app: tauri::AppHandle, url: String) -> std::result::Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -980,7 +1129,18 @@ fn credential_delete(account: String) -> std::result::Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(AppState::new())
+        .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            // Resolve the OS app-data dir and open (creating if needed) the
+            // local-first SQLite store before any command can run.
+            let data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&data_dir)?;
+            let db_path = data_dir.join("intelquery.db");
+            let pool = tauri::async_runtime::block_on(appdb::init_pool(&db_path))
+                .map_err(|e| format!("failed to open app database: {}", e))?;
+            app.manage(AppState::new(pool, db_path));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             connect_database,
             disconnect_database,
@@ -994,6 +1154,19 @@ pub fn run() {
             credential_set,
             credential_get,
             credential_delete,
+            appdb_list_connections,
+            appdb_save_connection,
+            appdb_delete_connection,
+            appdb_get_setting,
+            appdb_set_setting,
+            appdb_get_settings,
+            r2_save_config,
+            r2_get_config,
+            r2_clear_config,
+            r2_test_connection,
+            r2_backup,
+            r2_restore,
+            open_external_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,4 +1,114 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+/* Enable class-based dark mode for the whole app (shadcn convention). */
+@custom-variant dark (&:is(.dark *));
+
+/* ── Design tokens ──────────────────────────────────────────────────────────
+   Neutrals (backgrounds, surfaces, borders, text) flip between light and dark.
+   Brand colors (primary/success/destructive/warning) are intentionally kept
+   constant across themes — they already pair with white foreground text. */
+:root {
+  --radius: 0.625rem;
+
+  --background: #f5f6f8;
+  --foreground: #1b1d21;
+  --card: #ffffff;
+  --card-foreground: #1b1d21;
+  --popover: #ffffff;
+  --popover-foreground: #1b1d21;
+  /* Inset surfaces: textareas, code blocks, result tables. */
+  --surface-inset: #eef0f3;
+
+  --secondary: #e7e9ee;
+  --secondary-hover: #dadde4;
+  --secondary-foreground: #1b1d21;
+  --muted: #eef0f3;
+  --muted-foreground: #5b6270;
+  --accent: #e7e9ee;
+  --accent-foreground: #1b1d21;
+
+  --border: #d9dce2;
+  --input: #cdd1d9;
+  --ring: #0078d4;
+
+  /* Brand (constant across themes) */
+  --primary: #0078d4;
+  --primary-hover: #106ebe;
+  --primary-foreground: #ffffff;
+  --success: #107c10;
+  --success-hover: #0e6e0e;
+  --success-foreground: #ffffff;
+  --destructive: #d13438;
+  --destructive-hover: #b92b2f;
+  --destructive-foreground: #ffffff;
+  --warning: #ff8c00;
+  --warning-hover: #e67e00;
+  --warning-foreground: #ffffff;
+
+  color-scheme: light;
+}
+
+.dark {
+  --background: #212121;
+  --foreground: #ffffff;
+  --card: #2d2d2d;
+  --card-foreground: #ffffff;
+  --popover: #2d2d2d;
+  --popover-foreground: #ffffff;
+  --surface-inset: #1e1e1e;
+
+  --secondary: #404040;
+  --secondary-hover: #555555;
+  --secondary-foreground: #ffffff;
+  --muted: #2d2d2d;
+  --muted-foreground: #cccccc;
+  --accent: #3a3a3a;
+  --accent-foreground: #ffffff;
+
+  --border: #404040;
+  --input: #404040;
+  --ring: #0078d4;
+
+  color-scheme: dark;
+}
+
+/* Expose the tokens to Tailwind as color/radius utilities
+   (bg-card, text-muted-foreground, border-border, etc.). */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-surface-inset: var(--surface-inset);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
 
 @layer base {
   html {
@@ -11,21 +121,22 @@
   }
 
   body {
-    background-color: #212121;
-    color: #ffffff;
+    background-color: var(--background);
+    color: var(--foreground);
     margin: 0;
     padding: 0;
   }
 
   * {
     box-sizing: border-box;
+    border-color: var(--border);
   }
 }
 
 /* Custom component styles */
 @layer components {
   .btn {
-    @apply px-4 py-2 border-none rounded cursor-pointer font-medium text-sm 
+    @apply px-4 py-2 border-none rounded cursor-pointer font-medium text-sm
            transition-all duration-200 relative flex items-center gap-2;
   }
 
@@ -39,23 +150,43 @@
   }
 
   .btn-primary {
-    @apply bg-[#0078d4] text-white hover:bg-[#106ebe];
+    background-color: var(--primary);
+    color: var(--primary-foreground);
+  }
+  .btn-primary:hover {
+    background-color: var(--primary-hover);
   }
 
   .btn-secondary {
-    @apply bg-[#404040] text-white hover:bg-[#555555];
+    background-color: var(--secondary);
+    color: var(--secondary-foreground);
+  }
+  .btn-secondary:hover {
+    background-color: var(--secondary-hover);
   }
 
   .btn-success {
-    @apply bg-[#107c10] text-white hover:bg-[#0e6e0e];
+    background-color: var(--success);
+    color: var(--success-foreground);
+  }
+  .btn-success:hover {
+    background-color: var(--success-hover);
   }
 
   .btn-danger {
-    @apply bg-[#d13438] text-white hover:bg-[#b92b2f];
+    background-color: var(--destructive);
+    color: var(--destructive-foreground);
+  }
+  .btn-danger:hover {
+    background-color: var(--destructive-hover);
   }
 
   .btn-warning {
-    @apply bg-[#ff8c00] text-white hover:bg-[#e67e00];
+    background-color: var(--warning);
+    color: var(--warning-foreground);
+  }
+  .btn-warning:hover {
+    background-color: var(--warning-hover);
   }
 
   .btn-sm {
@@ -71,36 +202,38 @@
   }
 
   .form-group label {
-    @apply block mb-1 text-sm font-medium text-white;
+    @apply block mb-1 text-sm font-medium text-foreground;
   }
 
   .form-group input,
-  .form-group select {
-    @apply w-full px-3 py-2 border border-[#404040] rounded bg-[#2d2d2d] text-white
-           text-sm transition-colors duration-200 focus:outline-none focus:border-[#0078d4];
+  .form-group select,
+  .form-input {
+    @apply w-full px-3 py-2 border border-input rounded bg-surface-inset text-foreground
+           text-sm transition-colors duration-200 focus:outline-none focus:border-primary;
   }
 
   .modal-overlay {
-    @apply fixed inset-0 bg-black flex items-center justify-center z-50;
+    @apply fixed inset-0 flex items-center justify-center z-50;
     background-color: rgba(0, 0, 0, 0.5);
   }
 
   .modal {
-    @apply bg-[#2d2d2d] rounded-xl w-11/12 max-w-2xl max-h-screen overflow-y-auto
-           shadow-[0_20px_25px_-5px_rgba(0,_0,_0,_0.1),_0_10px_10px_-5px_rgba(0,_0,_0,_0.04)];
+    @apply bg-card text-card-foreground rounded-xl w-11/12 max-w-2xl max-h-screen overflow-y-auto
+           border border-border
+           shadow-[0_20px_25px_-5px_rgba(0,_0,_0,_0.25),_0_10px_10px_-5px_rgba(0,_0,_0,_0.1)];
   }
 
   .modal-header {
-    @apply flex justify-between items-center px-6 py-5 border-b border-[#404040];
+    @apply flex justify-between items-center px-6 py-5 border-b border-border;
   }
 
   .modal-header h3 {
-    @apply m-0 text-white text-lg font-semibold;
+    @apply m-0 text-foreground text-lg font-semibold;
   }
 
   .modal-close {
-    @apply bg-none border-none text-2xl text-[#cccccc] cursor-pointer p-0
-           w-8 h-8 flex items-center justify-center hover:text-white transition-colors;
+    @apply bg-none border-none text-2xl text-muted-foreground cursor-pointer p-0
+           w-8 h-8 flex items-center justify-center hover:text-foreground transition-colors;
   }
 
   .modal-body {
@@ -108,7 +241,7 @@
   }
 
   .modal-footer {
-    @apply flex justify-end gap-3 px-6 py-4 border-t border-[#404040];
+    @apply flex justify-end gap-3 px-6 py-4 border-t border-border;
   }
 
   .data-table {
@@ -116,26 +249,27 @@
   }
 
   .data-table th {
-    @apply bg-[#555555] font-semibold sticky top-0 z-10 border-b-2 border-[#404040]
+    @apply bg-secondary text-secondary-foreground font-semibold sticky top-0 z-10 border-b-2 border-border
            text-left px-2 py-3 whitespace-nowrap;
   }
 
   .data-table td {
-    @apply px-2 py-2 border-b border-[#404040] max-w-xs overflow-hidden 
+    @apply px-2 py-2 border-b border-border max-w-xs overflow-hidden
            text-ellipsis whitespace-nowrap;
   }
 
   .data-table tbody tr:hover {
-    @apply bg-[#555555];
+    @apply bg-accent;
   }
 
   .data-table tbody tr:nth-child(even) {
-    @apply bg-white opacity-5;
+    background-color: color-mix(in srgb, var(--foreground) 4%, transparent);
   }
 
   .table-data-modal {
-    @apply bg-[#2d2d2d] rounded-xl w-11/12 max-w-6xl max-h-screen overflow-y-auto
-           shadow-[0_20px_25px_-5px_rgba(0,_0,_0,_0.1),_0_10px_10px_-5px_rgba(0,_0,_0,_0.04)] flex flex-col;
+    @apply bg-card text-card-foreground rounded-xl w-11/12 max-w-6xl max-h-screen overflow-y-auto
+           border border-border
+           shadow-[0_20px_25px_-5px_rgba(0,_0,_0,_0.25),_0_10px_10px_-5px_rgba(0,_0,_0,_0.1)] flex flex-col;
   }
 
   .table-controls {
@@ -147,8 +281,8 @@
   }
 
   .search-input {
-    @apply w-full px-3 py-2 border border-[#404040] rounded-lg bg-[#212121] text-white
-           text-sm focus:outline-none focus:border-[#0078d4] transition-colors;
+    @apply w-full px-3 py-2 border border-input rounded-lg bg-surface-inset text-foreground
+           text-sm focus:outline-none focus:border-primary transition-colors;
   }
 
   .page-size-container {
@@ -156,32 +290,32 @@
   }
 
   .page-size-label {
-    @apply text-sm text-[#cccccc] whitespace-nowrap;
+    @apply text-sm text-muted-foreground whitespace-nowrap;
   }
 
   .page-size-select {
-    @apply px-2 py-1 border border-[#404040] rounded bg-[#2d2d2d] text-white text-sm
-           focus:outline-none focus:border-[#0078d4];
+    @apply px-2 py-1 border border-input rounded bg-surface-inset text-foreground text-sm
+           focus:outline-none focus:border-primary;
   }
 
   .table-info {
-    @apply flex gap-3 mb-4 px-3 py-2 bg-[#212121] rounded-lg;
+    @apply flex gap-3 mb-4 px-3 py-2 bg-surface-inset rounded-lg;
   }
 
   .info-badge {
-    @apply text-xs px-2 py-1 rounded-full bg-[#0078d4] text-white font-medium;
+    @apply text-xs px-2 py-1 rounded-full bg-primary text-primary-foreground font-medium;
   }
 
   .data-explorer {
-    @apply h-full flex flex-col bg-[#2d2d2d] rounded-lg border border-[#404040];
+    @apply h-full flex flex-col bg-card rounded-lg border border-border;
   }
 
   .explorer-header {
-    @apply px-4 py-4 border-b border-[#404040] flex items-center justify-between;
+    @apply px-4 py-4 border-b border-border flex items-center justify-between;
   }
 
   .explorer-header h3 {
-    @apply m-0 text-white text-base font-semibold;
+    @apply m-0 text-foreground text-base font-semibold;
   }
 
   .explorer-content {
@@ -189,24 +323,24 @@
   }
 
   .explorer-message {
-    @apply text-center text-[#cccccc] py-8;
+    @apply text-center text-muted-foreground py-8;
   }
 
   .table-button {
     @apply w-full justify-start px-3 py-2 mb-1 text-left font-medium
-           hover:bg-[#555555] transition-colors;
+           hover:bg-accent transition-colors;
   }
 
   .nlq-interface {
-    @apply h-full flex flex-col bg-[#2d2d2d] rounded-lg border border-[#404040];
+    @apply h-full flex flex-col bg-card rounded-lg border border-border;
   }
 
   .nlq-header {
-    @apply px-4 py-4 border-b border-[#404040] flex items-center justify-between;
+    @apply px-4 py-4 border-b border-border flex items-center justify-between;
   }
 
   .nlq-header h3 {
-    @apply m-0 text-white text-base font-semibold;
+    @apply m-0 text-foreground text-base font-semibold;
   }
 
   .nlq-content {
@@ -214,12 +348,12 @@
   }
 
   .nlq-message {
-    @apply text-center text-[#cccccc] py-8;
+    @apply text-center text-muted-foreground py-8;
   }
 
   .nlq-input {
-    @apply w-full min-h-20 px-3 py-3 border border-[#404040] rounded-lg bg-[#212121] text-white
-           text-sm resize-y mb-3 focus:outline-none focus:border-[#0078d4];
+    @apply w-full min-h-20 px-3 py-3 border border-input rounded-lg bg-surface-inset text-foreground
+           text-sm resize-y mb-3 focus:outline-none focus:border-primary;
   }
 
   .nlq-input-container {
@@ -227,42 +361,42 @@
   }
 
   .suggestions-dropdown {
-    @apply absolute top-full left-0 right-0 bg-[#2d2d2d] border border-[#404040] 
-           border-t-0 rounded-b-lg max-h-48 overflow-y-auto z-50 shadow-[0_1px_3px_0_rgba(0,_0,_0,_0.1),_0_1px_2px_0_rgba(0,_0,_0,_0.06)];
+    @apply absolute top-full left-0 right-0 bg-card border border-border
+           border-t-0 rounded-b-lg max-h-48 overflow-y-auto z-50 shadow-lg;
   }
 
   .suggestion-item {
     @apply flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors
-           hover:bg-[#555555];
+           hover:bg-accent;
   }
 
   .suggestion-icon {
-    @apply text-[#0078d4] font-bold text-sm;
+    @apply text-primary font-bold text-sm;
   }
 
   .suggestion-text {
-    @apply text-sm text-white;
+    @apply text-sm text-foreground;
   }
 
   .sql-container {
-    @apply border border-[#404040] rounded-lg overflow-hidden;
+    @apply border border-border rounded-lg overflow-hidden;
   }
 
   .sql-display {
-    @apply bg-[#212121] px-4 py-4 m-0 font-mono text-sm leading-relaxed
+    @apply bg-surface-inset px-4 py-4 m-0 font-mono text-sm leading-relaxed
            overflow-x-auto whitespace-pre-wrap break-all;
   }
 
   .sql-actions {
-    @apply px-4 py-3 bg-[#555555] flex gap-3;
+    @apply px-4 py-3 bg-secondary flex gap-3;
   }
 
   .performance-badge {
-    @apply text-xs px-2 py-1 rounded-full bg-[#107c10] text-white ml-2;
+    @apply text-xs px-2 py-1 rounded-full bg-success text-success-foreground ml-2;
   }
 
   .performance-metrics {
-    @apply px-4 py-3 bg-[#212121] border-t border-[#404040] grid
+    @apply px-4 py-3 bg-surface-inset border-t border-border grid
            grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3;
   }
 
@@ -271,15 +405,15 @@
   }
 
   .metric-label {
-    @apply text-xs text-[#cccccc] font-medium;
+    @apply text-xs text-muted-foreground font-medium;
   }
 
   .metric-value {
-    @apply text-sm text-white font-semibold;
+    @apply text-sm text-foreground font-semibold;
   }
 
   .status-bar {
-    @apply bg-[#2d2d2d] border-t border-[#404040] px-6 py-2;
+    @apply bg-card border-t border-border px-6 py-2;
   }
 
   .status-content {
@@ -291,12 +425,12 @@
   }
 
   .spinner {
-    @apply w-4 h-4 border-2 border-[#404040] border-t-[#0078d4] rounded-full
+    @apply w-4 h-4 border-2 border-border border-t-primary rounded-full
            animate-spin;
   }
 
   .status-message {
-    @apply text-sm text-[#cccccc];
+    @apply text-sm text-muted-foreground;
   }
 
   .pagination {
@@ -304,12 +438,12 @@
   }
 
   .pagination-info {
-    @apply text-xs text-[#cccccc];
+    @apply text-xs text-muted-foreground;
   }
 
   .error-message {
-    @apply px-4 py-4 bg-[#d13438] opacity-10 border border-[#d13438] rounded-lg
-           text-[#d13438];
+    @apply px-4 py-4 border border-destructive rounded-lg text-destructive;
+    background-color: color-mix(in srgb, var(--destructive) 10%, transparent);
   }
 
   /* Connections Manager Styles */
@@ -322,11 +456,11 @@
   }
 
   .connections-header h3 {
-    @apply m-0 text-white text-lg font-semibold;
+    @apply m-0 text-foreground text-lg font-semibold;
   }
 
   .connections-subtitle {
-    @apply m-0 text-sm text-[#cccccc] mt-1;
+    @apply m-0 text-sm text-muted-foreground mt-1;
   }
 
   .connections-list {
@@ -338,20 +472,20 @@
   }
 
   .no-connections-icon {
-    @apply text-4xl mb-3;
+    @apply text-muted-foreground mb-3;
   }
 
   .no-connections h4 {
-    @apply m-0 text-white text-base font-semibold mb-2;
+    @apply m-0 text-foreground text-base font-semibold mb-2;
   }
 
   .no-connections p {
-    @apply m-0 text-sm text-[#cccccc];
+    @apply m-0 text-sm text-muted-foreground;
   }
 
   .connection-item {
-    @apply bg-[#2d2d2d] border border-[#404040] rounded-lg p-4 flex justify-between items-start gap-4
-           hover:border-[#0078d4] transition-colors;
+    @apply bg-card border border-border rounded-lg p-4 flex justify-between items-start gap-4
+           hover:border-primary transition-colors;
   }
 
   .connection-info {
@@ -363,11 +497,11 @@
   }
 
   .connection-name {
-    @apply text-white font-semibold text-base;
+    @apply text-foreground font-semibold text-base;
   }
 
   .connection-type-badge {
-    @apply text-xs px-2 py-1 rounded-full bg-[#0078d4] text-white font-medium;
+    @apply text-xs px-2 py-1 rounded-full bg-primary text-primary-foreground font-medium;
   }
 
   .connection-details {
@@ -375,11 +509,11 @@
   }
 
   .connection-detail-item {
-    @apply flex items-center gap-1 text-[#cccccc];
+    @apply flex items-center gap-1 text-muted-foreground;
   }
 
   .detail-icon {
-    @apply text-base;
+    @apply text-base inline-block align-middle;
   }
 
   .connection-actions {
@@ -395,19 +529,10 @@
   }
 
   .form-section-title {
-    @apply text-sm font-semibold text-white mb-3 pb-2 border-b border-[#404040];
+    @apply text-sm font-semibold text-foreground mb-3 pb-2 border-b border-border;
   }
 
   .form-error {
-    @apply text-xs text-[#d13438] mt-1 block;
-  }
-
-  /* Icon styling for Lucide icons */
-  .detail-icon {
-    @apply inline-block align-middle;
-  }
-
-  .no-connections-icon {
-    @apply text-[#cccccc] mb-3;
+    @apply text-xs text-destructive mt-1 block;
   }
 }

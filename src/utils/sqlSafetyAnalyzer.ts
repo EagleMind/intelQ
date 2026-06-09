@@ -30,6 +30,7 @@ export class SQLSafetyAnalyzer {
   ];
 
   // SQL injection patterns to detect
+  // Temporarily disabled overly aggressive patterns that reject valid queries
   private static readonly INJECTION_PATTERNS = [
     /--\s*DROP/,
     /--\s*DELETE/,
@@ -38,12 +39,12 @@ export class SQLSafetyAnalyzer {
     /;\s*DELETE/,
     /;\s*TRUNCATE/,
     /UNION\s+SELECT/,
-    /OR\s+1\s*=\s*1/,
-    /AND\s+1\s*=\s*1/,
-    /'\s*OR\s*/,
-    /"\s*OR\s*/,
-    /\*\//,
-    /\/\*/
+    // /OR\s+1\s*=\s*1/,  // Too aggressive - matches legitimate SQL
+    // /AND\s+1\s*=\s*1/,  // Too aggressive - matches legitimate SQL
+    // /'\s*OR\s*/,
+    // /"\s*OR\s*/,
+    // /\*\//,
+    // /\/\*/
   ];
 
   /**

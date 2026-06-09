@@ -4,7 +4,10 @@
       "Bash(cargo check *)",
       "Bash(npx tsc *)",
       "Bash(echo \"EXIT=$?\")",
-      "Bash(echo \"TSC_EXIT=$?\")"
+      "Bash(echo \"TSC_EXIT=$?\")",
+      "PowerShell(npm install class-variance-authority clsx tailwind-merge @radix-ui/react-slot @radix-ui/react-dropdown-menu tw-animate-css 2>&1)",
+      "Bash(npx vite *)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }
