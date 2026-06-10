@@ -64,6 +64,14 @@ You stay in control. The SQL is always shown, the query is gated by a read-only 
 - **OpenRouter** for cloud models.
 - Per-provider endpoint and API-key settings, with the key stored in the OS keychain.
 
+### Database annotations
+- Add plain-language descriptions to tables and columns to document your schema.
+- **Local mode**: annotations stored only in IntelQuery — safe for read-only databases and SQLite.
+- **Write to Database mode**: persist annotations as native database comments (PostgreSQL & MySQL) so they're visible to all users connecting to the database.
+- Export annotations in multiple formats: JSON (for backup), SQL (to apply elsewhere), Markdown (for documentation), or CSV (for spreadsheets).
+- Import existing database comments from PostgreSQL/MySQL directly into IntelQuery.
+- Blue indicator dots on tables show which ones have annotations; click any table to add or edit notes.
+
 ---
 
 ## Quick start
@@ -111,6 +119,15 @@ The generated SQL is shown with timing and approach metadata. Click **Execute Qu
 
 ### 5. Working with writes
 If you ask the AI for something that produces `INSERT`/`UPDATE`/`DELETE`/`DROP`/etc. while read-only mode is on, you'll get a confirmation modal listing the dangerous operations. You can cancel, or explicitly disable the lock and run.
+
+### 6. Documenting your schema with annotations
+Click the **Annotate** button in the header to document tables and columns. 
+- **Add descriptions**: explain what each table stores, what columns mean, data types, allowed values, or deprecation notes.
+- **Choose storage mode**:
+  - *Local*: keep annotations in IntelQuery only (safe for read-only databases).
+  - *Write to Database*: save annotations as native comments directly in PostgreSQL or MySQL so all users see them.
+- **Import existing comments**: click "Fetch from DB" to read comments already in your PostgreSQL or MySQL database.
+- **Export your documentation**: save annotations as JSON (backup), SQL (apply to another DB), Markdown (share as docs), or CSV (use in spreadsheets).
 
 ---
 
