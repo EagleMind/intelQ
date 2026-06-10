@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.3](https://github.com/EagleMind/intelQ/compare/v1.0.2...v1.0.3) (2026-06-10)
+
+
+### Bug Fixes
+
+* add WebKit and libsoup development libraries for Ubuntu build ([f7e960f](https://github.com/EagleMind/intelQ/commit/f7e960f47b4facf9838a2cdb92f0dc17325385e3))
+* add WebKit and libsoup development libraries for Ubuntu build ([2f3863f](https://github.com/EagleMind/intelQ/commit/2f3863f555e46ef0d9a17f4bcdded600e10dfd5f))
+
 ## [1.0.2](https://github.com/EagleMind/intelQ/compare/v1.0.1...v1.0.2) (2026-06-10)
 
 
