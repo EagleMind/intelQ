@@ -9,8 +9,8 @@ jobs:
   create-release:
     runs-on: ubuntu-latest
     outputs:
-      release_version: ${{ steps.version.outputs.version }}
       release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
 
     steps:
       - uses: actions/checkout@v4
@@ -26,17 +26,14 @@ jobs:
           release-type: node
           include-component-in-tag: false
 
-      - name: Set version from release
-        id: version
-        if: steps.release.outputs.release_created
+      - name: Debug release outputs
         run: |
-          VERSION=${{ steps.release.outputs.tag_name }}
-          VERSION=${VERSION#v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "release_created: ${{ steps.release.outputs.release_created }}"
+          echo "tag_name: ${{ steps.release.outputs.tag_name }}"
 
   build-tauri:
     needs: create-release
-    if: needs.create-release.outputs.release_created == 'true'
+    if: ${{ needs.create-release.outputs.release_created == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -112,7 +109,7 @@ jobs:
     needs:
       - create-release
       - build-tauri
-    if: needs.create-release.outputs.release_created == 'true'
+    if: ${{ needs.create-release.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -132,7 +129,7 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ needs.create-release.outputs.release_version }}
+          tag_name: ${{ needs.create-release.outputs.tag_name }}
           files: release-assets/*
           draft: false
           prerelease: false
