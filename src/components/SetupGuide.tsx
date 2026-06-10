@@ -156,7 +156,7 @@ const SetupGuide: React.FC<Props> = ({ onOpenConnections, onEnter }) => {
                 </p>
                 <button className="btn btn-primary" onClick={onOpenConnections}>
                   <Plug className="w-4 h-4" />
-                  Add a connection
+                  Choose database
                 </button>
               </div>
             )}

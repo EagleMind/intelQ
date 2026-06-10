@@ -1,7 +1,9 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Tag } from 'lucide-react';
 import { api } from '../services/api';
 import { useDb } from '../store/DbContext';
+import { useAnnotations } from '../store/AnnotationContext';
+import AnnotationBadge from './annotations/AnnotationBadge';
 import type { TableDataResponse } from '../types/api';
 import '../index.css';
 
@@ -18,6 +20,7 @@ const cellText = (v: string | null) => (v === null ? 'NULL' : v);
 
 const DataExplorer: React.FC = () => {
   const { status, tables, refreshSchema, setStatusMessage, setLoading } = useDb();
+  const { openPanel } = useAnnotations();
   const dbConnected = status.connected;
 
   const [showTableModal, setShowTableModal] = useState(false);
@@ -109,6 +112,15 @@ const DataExplorer: React.FC = () => {
           <RefreshCw className="w-4 h-4 mr-2" />
           Refresh
         </button>
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => openPanel()}
+          disabled={!dbConnected}
+          title="Add annotations to tables and columns"
+        >
+          <Tag className="w-4 h-4 mr-2" />
+          Annotate
+        </button>
       </div>
 
       <div className="flex-1 px-4 py-4 overflow-y-auto min-h-0">
@@ -123,10 +135,18 @@ const DataExplorer: React.FC = () => {
             {tables.map(table => (
               <div
                 key={table}
-                className="px-3 py-2 text-sm font-medium hover:bg-accent transition-colors cursor-pointer text-left rounded"
+                className="px-3 py-2 text-sm font-medium hover:bg-accent transition-colors cursor-pointer text-left rounded flex items-center gap-2 group"
                 onClick={() => loadTableData(table)}
               >
-                {table}
+                <span className="flex-1">{table}</span>
+                <AnnotationBadge tableName={table} />
+                <button
+                  className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+                  onClick={e => { e.stopPropagation(); openPanel(table); }}
+                  title={`Annotate ${table}`}
+                >
+                  <Tag className="w-3 h-3 text-muted-foreground" />
+                </button>
               </div>
             ))}
           </div>

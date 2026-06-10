@@ -7,6 +7,7 @@ use sqlx::mysql::{MySqlPool, MySqlRow};
 use sqlx::postgres::{PgPool, PgRow};
 use sqlx::sqlite::{SqlitePool, SqliteRow};
 use sqlx::types::chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::Utc;
 use sqlx::{Column, Row};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -14,6 +15,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tauri::Manager;
 
+mod annotations;
 mod appdb;
 mod sync;
 
@@ -1021,6 +1023,10 @@ async fn appdb_delete_connection(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<(), String> {
     let pool = state.app_db().await;
+    // Cascade: remove all annotations scoped to this connection first.
+    annotations::delete_annotations_for_connection(&pool, &id)
+        .await
+        .map_err(|e| e.to_string())?;
     appdb::delete_connection(&pool, &id)
         .await
         .map_err(|e| e.to_string())
@@ -1055,6 +1061,246 @@ async fn appdb_get_settings(
 ) -> std::result::Result<HashMap<String, String>, String> {
     let pool = state.app_db().await;
     appdb::get_settings(&pool).await.map_err(|e| e.to_string())
+}
+
+// -------- Annotations -------- //
+
+#[tauri::command]
+async fn annotation_save(
+    record: annotations::AnnotationRecord,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let pool = state.app_db().await;
+    annotations::save_annotation(&pool, &record)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn annotation_get_all(
+    connection_id: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<annotations::AnnotationRecord>, String> {
+    let pool = state.app_db().await;
+    annotations::get_annotations(&pool, &connection_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn annotation_delete(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let pool = state.app_db().await;
+    annotations::delete_annotation(&pool, &id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn annotation_export(
+    connection_id: String,
+    format: String,
+    db_type: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<String, String> {
+    let pool = state.app_db().await;
+    let records = annotations::get_annotations(&pool, &connection_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(annotations::export_annotations(&records, &format, &db_type))
+}
+
+/// Writes a COMMENT directly to the connected target database.
+/// Only called when the user explicitly chooses "Native COMMENT" mode.
+#[tauri::command]
+async fn annotation_apply_native(
+    record: annotations::AnnotationRecord,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    // Validate names to prevent SQL injection via table/column name fields.
+    DatabaseManager::validate_table_name(&record.table_name)
+        .map_err(|e| e.to_string())?;
+    if let Some(col) = &record.column_name {
+        DatabaseManager::validate_table_name(col).map_err(|e| e.to_string())?;
+    }
+
+    let pool = state.pool().await?;
+    let body = record.body.replace('\'', "''");
+
+    match &pool {
+        DatabasePool::Postgres(p) => {
+            let sql = if record.scope == "table" {
+                format!("COMMENT ON TABLE \"{}\" IS '{}'", record.table_name, body)
+            } else if let Some(col) = &record.column_name {
+                format!(
+                    "COMMENT ON COLUMN \"{}\".\"{}\" IS '{}'",
+                    record.table_name, col, body
+                )
+            } else {
+                return Err("Column name is required for column-scope annotation".to_string());
+            };
+            sqlx::query(&sql).execute(p).await.map_err(|e| e.to_string())?;
+        }
+        DatabasePool::MySQL(p) => {
+            if record.scope == "table" {
+                let sql = format!("ALTER TABLE `{}` COMMENT = '{}'", record.table_name, body);
+                sqlx::query(&sql).execute(p).await.map_err(|e| e.to_string())?;
+            } else {
+                return Err(
+                    "MySQL column COMMENT requires ALTER TABLE MODIFY COLUMN with the full \
+                     column definition, which is not yet supported. Use virtual mode for \
+                     column annotations on MySQL."
+                        .to_string(),
+                );
+            }
+        }
+        DatabasePool::Sqlite(_) => {
+            return Err(
+                "SQLite does not support native COMMENT syntax. Use virtual mode.".to_string(),
+            );
+        }
+        DatabasePool::None => {
+            return Err("No database connection".to_string());
+        }
+    }
+    Ok(())
+}
+
+/// Reads existing COMMENT values from the connected target database and returns
+/// them as AnnotationRecords so the frontend can import them into the local store.
+#[tauri::command]
+async fn annotation_fetch_native(
+    connection_id: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<annotations::AnnotationRecord>, String> {
+    let pool = state.pool().await?;
+    let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let mut result: Vec<annotations::AnnotationRecord> = Vec::new();
+
+    match &pool {
+        DatabasePool::Postgres(p) => {
+            // Table comments
+            let rows = sqlx::query(
+                "SELECT c.relname, obj_description(c.oid, 'pg_class') \
+                 FROM pg_class c \
+                 JOIN pg_namespace n ON n.oid = c.relnamespace \
+                 WHERE c.relkind = 'r' AND n.nspname = 'public' \
+                 AND obj_description(c.oid, 'pg_class') IS NOT NULL",
+            )
+            .fetch_all(p)
+            .await
+            .map_err(|e| e.to_string())?;
+
+            for row in &rows {
+                let table: String = row.try_get(0).map_err(|e| e.to_string())?;
+                let comment: String = row.try_get(1).map_err(|e| e.to_string())?;
+                result.push(annotations::AnnotationRecord {
+                    id: annotations::make_id(&connection_id, &table, None, "table"),
+                    connection_id: connection_id.clone(),
+                    scope: "table".to_string(),
+                    table_name: table,
+                    column_name: None,
+                    body: comment,
+                    mode: "native".to_string(),
+                    created_at: now.clone(),
+                    updated_at: now.clone(),
+                });
+            }
+
+            // Column comments
+            let col_rows = sqlx::query(
+                "SELECT c.relname, a.attname, col_description(c.oid, a.attnum) \
+                 FROM pg_class c \
+                 JOIN pg_namespace n ON n.oid = c.relnamespace \
+                 JOIN pg_attribute a ON a.attrelid = c.oid \
+                 WHERE c.relkind = 'r' AND n.nspname = 'public' \
+                 AND a.attnum > 0 AND NOT a.attisdropped \
+                 AND col_description(c.oid, a.attnum) IS NOT NULL",
+            )
+            .fetch_all(p)
+            .await
+            .map_err(|e| e.to_string())?;
+
+            for row in &col_rows {
+                let table: String = row.try_get(0).map_err(|e| e.to_string())?;
+                let col: String = row.try_get(1).map_err(|e| e.to_string())?;
+                let comment: String = row.try_get(2).map_err(|e| e.to_string())?;
+                result.push(annotations::AnnotationRecord {
+                    id: annotations::make_id(&connection_id, &table, Some(&col), "column"),
+                    connection_id: connection_id.clone(),
+                    scope: "column".to_string(),
+                    table_name: table,
+                    column_name: Some(col),
+                    body: comment,
+                    mode: "native".to_string(),
+                    created_at: now.clone(),
+                    updated_at: now.clone(),
+                });
+            }
+        }
+        DatabasePool::MySQL(p) => {
+            // Table comments
+            let rows = sqlx::query(
+                "SELECT table_name, table_comment \
+                 FROM information_schema.tables \
+                 WHERE table_schema = DATABASE() \
+                 AND table_comment IS NOT NULL AND table_comment != ''",
+            )
+            .fetch_all(p)
+            .await
+            .map_err(|e| e.to_string())?;
+
+            for row in &rows {
+                let table: String = row.try_get(0).map_err(|e| e.to_string())?;
+                let comment: String = row.try_get(1).map_err(|e| e.to_string())?;
+                result.push(annotations::AnnotationRecord {
+                    id: annotations::make_id(&connection_id, &table, None, "table"),
+                    connection_id: connection_id.clone(),
+                    scope: "table".to_string(),
+                    table_name: table,
+                    column_name: None,
+                    body: comment,
+                    mode: "native".to_string(),
+                    created_at: now.clone(),
+                    updated_at: now.clone(),
+                });
+            }
+
+            // Column comments
+            let col_rows = sqlx::query(
+                "SELECT table_name, column_name, column_comment \
+                 FROM information_schema.columns \
+                 WHERE table_schema = DATABASE() \
+                 AND column_comment IS NOT NULL AND column_comment != '' \
+                 ORDER BY table_name, ordinal_position",
+            )
+            .fetch_all(p)
+            .await
+            .map_err(|e| e.to_string())?;
+
+            for row in &col_rows {
+                let table: String = row.try_get(0).map_err(|e| e.to_string())?;
+                let col: String = row.try_get(1).map_err(|e| e.to_string())?;
+                let comment: String = row.try_get(2).map_err(|e| e.to_string())?;
+                result.push(annotations::AnnotationRecord {
+                    id: annotations::make_id(&connection_id, &table, Some(&col), "column"),
+                    connection_id: connection_id.clone(),
+                    scope: "column".to_string(),
+                    table_name: table,
+                    column_name: Some(col),
+                    body: comment,
+                    mode: "native".to_string(),
+                    created_at: now.clone(),
+                    updated_at: now.clone(),
+                });
+            }
+        }
+        _ => {} // SQLite: no native COMMENT support
+    }
+
+    Ok(result)
 }
 
 // -------- Cloudflare R2 backup / restore -------- //
@@ -1166,6 +1412,12 @@ pub fn run() {
             r2_test_connection,
             r2_backup,
             r2_restore,
+            annotation_save,
+            annotation_get_all,
+            annotation_delete,
+            annotation_export,
+            annotation_apply_native,
+            annotation_fetch_native,
             open_external_url,
         ])
         .run(tauri::generate_context!())

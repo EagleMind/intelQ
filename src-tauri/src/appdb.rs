@@ -44,7 +44,7 @@ pub async fn init_pool(path: &Path) -> Result<SqlitePool> {
     Ok(pool)
 }
 
-async fn init_schema(pool: &SqlitePool) -> Result<()> {
+pub async fn init_schema(pool: &SqlitePool) -> Result<()> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS connections (\
             id TEXT PRIMARY KEY, \
@@ -70,6 +70,8 @@ async fn init_schema(pool: &SqlitePool) -> Result<()> {
     )
     .execute(pool)
     .await?;
+
+    crate::annotations::init_schema(pool).await?;
 
     Ok(())
 }

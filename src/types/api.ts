@@ -39,3 +39,28 @@ export interface ConnectionResponse {
   success: boolean;
   message: string;
 }
+
+// ---------------------------------------------------------------------------
+// Annotations
+// ---------------------------------------------------------------------------
+
+export interface Annotation {
+  id: string;
+  connection_id: string;
+  scope: 'table' | 'column';
+  table_name: string;
+  column_name?: string | null;
+  body: string;
+  mode: 'virtual' | 'native';
+  created_at: string;
+  updated_at: string;
+}
+
+export function makeAnnotationId(
+  connectionId: string,
+  tableName: string,
+  scope: 'table' | 'column',
+  columnName?: string
+): string {
+  return `${connectionId}:${tableName}:${columnName ?? ''}:${scope}`;
+}

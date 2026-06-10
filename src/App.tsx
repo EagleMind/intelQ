@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
+import { Tag } from 'lucide-react';
 import DataExplorer from './components/DataExplorer';
 import NLQInterface from './components/NLQInterface';
 import ConnectionsManager from './components/ConnectionsManager';
 import SyncSettings from './components/SyncSettings';
 import SetupGuide from './components/SetupGuide';
+import AnnotationPanel from './components/annotations/AnnotationPanel';
 import { sync } from './services/sync';
 import { DbProvider, useDb } from './store/DbContext';
 import { AiSettingsProvider, useAiSettings } from './store/AiSettingsContext';
+import { AnnotationProvider, useAnnotations } from './store/AnnotationContext';
 import { ThemeProvider } from '@/components/theme-provider';
 import { ThemeToggle } from '@/components/theme-toggle';
 import './index.css';
@@ -27,6 +30,7 @@ const ONBOARDING_DONE_KEY = 'onboarding_done';
 const Shell: React.FC = () => {
   const { status, statusMessage, isLoading, initializing, disconnect } = useDb();
   const { loaded: aiLoaded, configuredAtStart } = useAiSettings();
+  const { openPanel } = useAnnotations();
   const [showConnectionsManager, setShowConnectionsManager] = useState(false);
   const [showSync, setShowSync] = useState(false);
 
@@ -55,9 +59,8 @@ const Shell: React.FC = () => {
   };
 
   const booting = initializing || !aiLoaded || !onboardingLoaded;
-  // Skip the guide entirely for returning users who already set up AI, or once
-  // the user has explicitly finished onboarding this session.
-  const showWorkspace = configuredAtStart || onboardingDone;
+  // Show workspace only after the user has explicitly finished onboarding
+  const showWorkspace = onboardingDone;
 
   return (
     <div className="h-screen flex flex-col bg-background">
@@ -80,6 +83,16 @@ const Shell: React.FC = () => {
               >
                 Manage Connections
               </button>
+              {status.connected && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => openPanel()}
+                  title="Add annotations to tables and columns"
+                >
+                  <Tag className="w-4 h-4 mr-2" />
+                  Annotate
+                </button>
+              )}
               <button className="btn btn-secondary btn-sm" onClick={() => setShowSync(true)}>
                 Sync
               </button>
@@ -149,6 +162,8 @@ const Shell: React.FC = () => {
         </div>
       )}
 
+      <AnnotationPanel />
+
       {showSync && (
         <div className="modal-overlay" onClick={() => setShowSync(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -172,7 +187,9 @@ const App: React.FC = () => (
   <ThemeProvider defaultTheme="system" storageKey="intelquery-theme">
     <DbProvider>
       <AiSettingsProvider>
-        <Shell />
+        <AnnotationProvider>
+          <Shell />
+        </AnnotationProvider>
       </AiSettingsProvider>
     </DbProvider>
   </ThemeProvider>

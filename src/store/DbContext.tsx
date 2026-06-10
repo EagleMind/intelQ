@@ -13,6 +13,8 @@ import { sync } from '../services/sync';
 interface DbStatus {
   connected: boolean;
   connectionName?: string;
+  connectionId?: string;
+  connectionDbType?: string;
 }
 
 interface DbContextValue {
@@ -27,7 +29,7 @@ interface DbContextValue {
   setStatusMessage: (m: string) => void;
   setLoading: (b: boolean) => void;
   setReadOnlyLock: (b: boolean) => void;
-  markConnected: (name?: string) => Promise<void>;
+  markConnected: (name?: string, id?: string, dbType?: string) => Promise<void>;
   disconnect: () => Promise<void>;
   refreshSchema: () => Promise<void>;
 }
@@ -94,8 +96,8 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   }, [setLoading]);
 
   const markConnected = useCallback(
-    async (name?: string) => {
-      setStatus({ connected: true, connectionName: name });
+    async (name?: string, id?: string, dbType?: string) => {
+      setStatus({ connected: true, connectionName: name, connectionId: id, connectionDbType: dbType });
       await loadSchemaAndTables();
     },
     [loadSchemaAndTables]
@@ -107,7 +109,7 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     } catch {
       // ignore
     }
-    setStatus({ connected: false });
+    setStatus({ connected: false, connectionId: undefined, connectionDbType: undefined });
     setTables([]);
     setSchema('');
   }, []);

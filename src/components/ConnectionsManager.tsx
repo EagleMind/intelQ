@@ -42,7 +42,7 @@ const ConnectionsManager: React.FC<Props> = ({ onClose }) => {
   const [connections, setConnections] = useState<ConnectionRecord[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [formData, setFormData] = useState<FormState>(defaultForm);
 
@@ -160,9 +160,9 @@ const ConnectionsManager: React.FC<Props> = ({ onClose }) => {
       setStatusMessage('Please fix the form errors');
       return;
     }
-    setIsConnecting(true);
+    const id = editingId ?? Date.now().toString();
+    setConnectingId(id);
     try {
-      const id = editingId ?? Date.now().toString();
       const record: ConnectionRecord = {
         id,
         name: formData.name,
@@ -182,7 +182,7 @@ const ConnectionsManager: React.FC<Props> = ({ onClose }) => {
         }
       } catch (e) {
         setStatusMessage(`Failed to store credential: ${e}`);
-        setIsConnecting(false);
+        setConnectingId(null);
         return;
       }
 
@@ -195,7 +195,7 @@ const ConnectionsManager: React.FC<Props> = ({ onClose }) => {
       const resp = await connectAndStore(record, formData.password);
       if (resp.success) {
         setStatusMessage('Connected');
-        await markConnected(record.name);
+        await markConnected(record.name, record.id, record.db_type);
         setShowModal(false);
         resetForm();
         onClose();
@@ -205,19 +205,19 @@ const ConnectionsManager: React.FC<Props> = ({ onClose }) => {
     } catch (e) {
       setStatusMessage(`Failed to save: ${e}`);
     } finally {
-      setIsConnecting(false);
+      setConnectingId(null);
     }
   };
 
   const testAndConnect = async (record: ConnectionRecord) => {
-    setIsConnecting(true);
+    setConnectingId(record.id);
     try {
       const password = (await api.credentialGet(credentialAccount(record.id))) ?? '';
       setStatusMessage('Connecting...');
       const resp = await connectAndStore(record, password);
       if (resp.success) {
         setStatusMessage('Connected');
-        await markConnected(record.name);
+        await markConnected(record.name, record.id, record.db_type);
         onClose();
       } else {
         setStatusMessage(`Connection failed: ${resp.message}`);
@@ -225,7 +225,7 @@ const ConnectionsManager: React.FC<Props> = ({ onClose }) => {
     } catch (e) {
       setStatusMessage(`Error: ${e}`);
     } finally {
-      setIsConnecting(false);
+      setConnectingId(null);
     }
   };
 
@@ -282,7 +282,7 @@ const ConnectionsManager: React.FC<Props> = ({ onClose }) => {
                 <button
                   className="btn btn-success btn-sm"
                   onClick={() => testAndConnect(connection)}
-                  disabled={isConnecting}
+                  disabled={connectingId === connection.id}
                 >
                   Connect
                 </button>
@@ -457,16 +457,16 @@ const ConnectionsManager: React.FC<Props> = ({ onClose }) => {
                   setShowModal(false);
                   resetForm();
                 }}
-                disabled={isConnecting}
+                disabled={connectingId !== null}
               >
                 Cancel
               </button>
               <button
                 className="btn btn-primary"
                 onClick={saveConnection}
-                disabled={isConnecting}
+                disabled={connectingId !== null}
               >
-                {isConnecting
+                {connectingId !== null
                   ? 'Connecting...'
                   : editingId
                   ? 'Update & Connect'
