@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "scopekit": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\Hassen\\Documents\\scopekit\\mcp-server\\dist\\mcp.js",
+        "--root",
+        "C:\\Users\\Hassen\\Documents\\intelquery"
+      ]
+    }
+  }
+}

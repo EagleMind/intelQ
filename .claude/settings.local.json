@@ -13,7 +13,30 @@
       "Bash(Format-Table -AutoSize)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Hassen\\\\Documents\\\\intelquery\\\\src-tauri\\\\src\" -Force)",
       "mcp__visualize__read_me",
-      "mcp__visualize__show_widget"
+      "mcp__visualize__show_widget",
+      "Bash(git config *)",
+      "Bash(gh auth *)",
+      "Bash(mkdir -p \"C:\\\\Users\\\\Hassen\\\\Documents\\\\scopekit\\\\templates\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\Hassen\\\\Documents\\\\scopekit\\\\scripts\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\Hassen\\\\Documents\\\\scopekit\\\\examples\\\\react-spa\\\\AGENTS\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\Hassen\\\\Documents\\\\scopekit\\\\examples\\\\python-api\\\\AGENTS\")",
+      "Bash(mkdir -p \"C:\\\\Users\\\\Hassen\\\\Documents\\\\scopekit\\\\examples\\\\tauri-app\\\\AGENTS\")",
+      "Bash(gh repo *)",
+      "Bash(dir \"C:\\\\Users\\\\Hassen\\\\Documents\\\\scopekit\\\\mcp-server\" /b /a)",
+      "Bash(node \"C:/Users/Hassen/Documents/scopekit/mcp-server/dist/cli.js\" verify)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node C:\\Users\\Hassen\\Documents\\scopekit\\mcp-server\\dist\\hook.js"
+          }
+        ]
+      }
     ]
   }
 }
