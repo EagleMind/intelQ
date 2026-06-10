@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1](https://github.com/EagleMind/intelQ/compare/v1.0.0...v1.0.1) (2026-06-10)
+
+
+### Bug Fixes
+
+* remove unused variable and correct build targets ([31266a2](https://github.com/EagleMind/intelQ/commit/31266a208ac2baaf155c9c6c74a103fa5ca83a7a))
+* remove unused variable and correct build targets ([210f397](https://github.com/EagleMind/intelQ/commit/210f3974e2fb4a14b0dc633ea54e88688e7a7346))
+
 ## 1.0.0 (2026-06-10)
 
 
