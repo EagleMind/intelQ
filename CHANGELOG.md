@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.2](https://github.com/EagleMind/intelQ/compare/v1.0.1...v1.0.2) (2026-06-10)
+
+
+### Bug Fixes
+
+* add missing GTK dependencies and correct macOS target ([cdc121c](https://github.com/EagleMind/intelQ/commit/cdc121cf90b5f25f295bacfcd53750f71cf74448))
+* add missing GTK dependencies and correct macOS target ([3fdccae](https://github.com/EagleMind/intelQ/commit/3fdccaea8b6bb20b2fc0dd204b7e18860da18261))
+
 ## [1.0.1](https://github.com/EagleMind/intelQ/compare/v1.0.0...v1.0.1) (2026-06-10)
 
 
