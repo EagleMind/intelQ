@@ -200,6 +200,28 @@ intelquery/
 └── package.json
 ```
 
+### Releases
+
+IntelQuery uses **automated releases** with semantic versioning:
+
+- **Automatic version bumping** based on conventional commits (`feat:`, `fix:`, etc.)
+- **Multi-platform builds** for macOS, Linux, and Windows
+- **GitHub Releases** with built artifacts (DMG, AppImage, Deb, MSI, NSIS EXE)
+
+#### How it works
+
+1. Merge a PR with conventional commits to `main`
+2. Release-please creates a release PR automatically
+3. Merge the release PR
+4. Workflow builds the app and creates a GitHub release with installers
+
+#### Commit message format
+
+Use these prefixes in commit messages:
+- `feat:` - new feature (minor version bump)
+- `fix:` - bug fix (patch version bump)
+- `BREAKING CHANGE:` - breaking change (major version bump)
+
 ### Tauri commands (Rust → frontend API)
 | Command | Purpose |
 |---|---|
