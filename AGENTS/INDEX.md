@@ -37,6 +37,7 @@ I will spawn an agent pre-loaded with the right context and scoped to the right 
 | MOD-005 | Cloudflare R2 Backup          | `MOD-005.md`       | `src-tauri/src/sync.rs`                  |
 | MOD-006 | UI Primitives & Theme         | `MOD-006.md`       | `src/components/ui/`, `src/index.css`    |
 | MOD-007 | App Shell & Routing           | `MOD-007.md`       | `src/App.tsx`                            |
+| MOD-008 | Onboarding Guide              | `MOD-008.md`       | `src/components/SetupGuide.tsx`          |
 
 ---
 
@@ -50,10 +51,14 @@ MOD-007 (App Shell)
   │     └── MOD-001
   ├── MOD-003 (NLQ)
   │     ├── MOD-001
-  │     └── MOD-002 (future injection)
+  │     ├── MOD-004
+  │     └── MOD-006
   ├── MOD-005 (R2 Backup)
   │     └── MOD-004
-  └── MOD-006 (UI & Theme)
+  ├── MOD-006 (UI & Theme)
+  └── MOD-008 (Onboarding)
+        ├── MOD-001
+        └── MOD-003
 ```
 
 Foundational (no deps): **MOD-004**, **MOD-006**

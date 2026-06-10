@@ -96,7 +96,8 @@ const SetupGuide: React.FC<Props> = ({ onOpenConnections, onEnter }) => {
   // Step 2 only counts as done once the user has explicitly saved a provider
   // *and* it has what it needs — otherwise the pre-filled LM Studio default
   // would silently complete the step and skip the user past it.
-  const [aiConfirmed, setAiConfirmed] = useState(false);
+  // If a provider is already configured from a previous session, auto-confirm it.
+  const [aiConfirmed, setAiConfirmed] = useState(provider !== undefined && aiReady);
   const aiDone = aiConfirmed && aiReady;
 
   // The current step is the first incomplete one.
