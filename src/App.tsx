@@ -29,7 +29,7 @@ const ONBOARDING_DONE_KEY = 'onboarding_done';
 
 const Shell: React.FC = () => {
   const { status, statusMessage, isLoading, initializing, disconnect } = useDb();
-  const { loaded: aiLoaded, configuredAtStart } = useAiSettings();
+  const { loaded: aiLoaded } = useAiSettings();
   const { openPanel } = useAnnotations();
   const [showConnectionsManager, setShowConnectionsManager] = useState(false);
   const [showSync, setShowSync] = useState(false);
