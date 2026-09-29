@@ -21,14 +21,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Create release using release-please (automatically bumps versions)
+      # Create release using release-please (automatically bumps versions).
+      # No release-type input here: passing one makes the action ignore
+      # release-please-config.json, so the extra-files (tauri.conf.json,
+      # Cargo.toml) would never be bumped and installers stay at 0.1.0.
       - uses: googleapis/release-please-action@v4
         id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           target-branch: main
-          release-type: node
-          include-component-in-tag: false
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
 
       - name: Debug release outputs
         run: |
