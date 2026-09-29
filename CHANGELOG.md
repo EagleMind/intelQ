@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.4](https://github.com/EagleMind/intelQ/compare/v1.0.3...v1.0.4) (2026-09-29)
+
+
+### Bug Fixes
+
+* make OpenRouter model configurable in AI settings ([0f31123](https://github.com/EagleMind/intelQ/commit/0f3112395b9617cf5b89d2370e26f5c0edb8de7c))
+* make OpenRouter model configurable in AI settings ([ac3c789](https://github.com/EagleMind/intelQ/commit/ac3c78956529f5612b5f5b120607ad86310733f2))
+
 ## [1.0.3](https://github.com/EagleMind/intelQ/compare/v1.0.2...v1.0.3) (2026-06-10)
 
 
