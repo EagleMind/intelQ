@@ -5,6 +5,7 @@ export interface LlmConfig {
   lmStudioEndpoint: string;
   openRouterEndpoint: string;
   openRouterApiKey: string;
+  openRouterModel: string;
 }
 
 export interface GenerateOpts {
@@ -150,6 +151,9 @@ export async function generateSql({
     if (!config.openRouterApiKey.trim()) {
       throw new Error('Missing OpenRouter API key');
     }
+    if (!config.openRouterModel.trim()) {
+      throw new Error('Missing OpenRouter model');
+    }
     response = await fetch(config.openRouterEndpoint, {
       method: 'POST',
       headers: {
@@ -157,7 +161,7 @@ export async function generateSql({
         Authorization: `Bearer ${config.openRouterApiKey}`,
       },
       body: JSON.stringify({
-        model: 'poolside/laguna-m.1:free',
+        model: config.openRouterModel.trim(),
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userPrompt },
@@ -169,7 +173,17 @@ export async function generateSql({
   }
 
   if (!response.ok) {
-    throw new Error(`Provider responded ${response.status}`);
+    // Surface the provider's own error message (e.g. OpenRouter's
+    // "No endpoints found for <model>") instead of just the status code.
+    const body = await response.text().catch(() => '');
+    let detail = body;
+    try {
+      const parsed = JSON.parse(body);
+      detail = parsed.error?.message ?? parsed.error ?? parsed.message ?? body;
+    } catch {
+      // Non-JSON body — use it as-is.
+    }
+    throw new Error(`Provider responded ${response.status}${detail ? `: ${detail}` : ''}`);
   }
 
   const data = await response.json();
