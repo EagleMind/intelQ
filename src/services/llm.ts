@@ -180,8 +180,18 @@ export async function generateSql({
     try {
       const parsed = JSON.parse(body);
       detail = parsed.error?.message ?? parsed.error ?? parsed.message ?? body;
+      // OpenRouter wraps upstream failures as "Provider returned error" and
+      // puts the real reason (and which host failed) under error.metadata.
+      const meta = parsed.error?.metadata;
+      if (typeof meta?.raw === 'string' && meta.raw.trim()) {
+        detail += ` (${meta.provider_name ? `${meta.provider_name}: ` : ''}${meta.raw.trim()})`;
+      }
     } catch {
       // Non-JSON body — use it as-is.
+    }
+    if (response.status === 429 && config.provider === 'openrouter') {
+      detail += ' — rate limited. Free (:free) models are shared and throttled; ' +
+        'wait a minute and retry, or pick another model in AI settings.';
     }
     throw new Error(`Provider responded ${response.status}${detail ? `: ${detail}` : ''}`);
   }
