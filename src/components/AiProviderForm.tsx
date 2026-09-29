@@ -4,6 +4,7 @@ import {
   useAiSettings,
   DEFAULT_LMSTUDIO_ENDPOINT,
   DEFAULT_OPENROUTER_ENDPOINT,
+  DEFAULT_OPENROUTER_MODEL,
 } from '../store/AiSettingsContext';
 import type { Provider } from '../services/llm';
 
@@ -21,11 +22,13 @@ const AiProviderForm: React.FC<Props> = ({ onSaved, onCancel, saveLabel = 'Save'
     lmStudioEndpoint,
     openRouterEndpoint,
     openRouterApiKey,
+    openRouterModel,
     aiReady,
     setProvider,
     setLmStudioEndpoint,
     setOpenRouterEndpoint,
     setOpenRouterApiKey,
+    setOpenRouterModel,
     save,
   } = useAiSettings();
 
@@ -63,7 +66,9 @@ const AiProviderForm: React.FC<Props> = ({ onSaved, onCancel, saveLabel = 'Save'
               : 'Enter your LM Studio endpoint to continue.'
             : aiReady
               ? 'OpenRouter API key is set.'
-              : 'Add your OpenRouter API key to continue.'}
+              : openRouterApiKey.trim()
+                ? 'Enter an OpenRouter model ID to continue.'
+                : 'Add your OpenRouter API key to continue.'}
         </span>
       </div>
 
@@ -118,6 +123,19 @@ const AiProviderForm: React.FC<Props> = ({ onSaved, onCancel, saveLabel = 'Save'
             />
             <p className="text-xs text-muted-foreground mt-1">
               Stored in your OS keychain, not localStorage.
+            </p>
+          </div>
+          <div className="form-group">
+            <label>OpenRouter Model</label>
+            <input
+              type="text"
+              className="form-input"
+              value={openRouterModel}
+              onChange={e => setOpenRouterModel(e.target.value)}
+              placeholder={DEFAULT_OPENROUTER_MODEL}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Any model ID from openrouter.ai/models, e.g. {DEFAULT_OPENROUTER_MODEL}.
             </p>
           </div>
         </>

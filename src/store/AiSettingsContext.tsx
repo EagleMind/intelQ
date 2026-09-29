@@ -11,6 +11,7 @@ import type { LlmConfig, Provider } from '../services/llm';
 
 export const DEFAULT_LMSTUDIO_ENDPOINT = 'http://localhost:1234/api/v1/chat';
 export const DEFAULT_OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
+export const DEFAULT_OPENROUTER_MODEL = 'poolside/laguna-s-2.1:free';
 const OPENROUTER_KEYRING_ACCOUNT = 'openrouter_api_key';
 
 interface AiSettingsValue {
@@ -18,6 +19,7 @@ interface AiSettingsValue {
   lmStudioEndpoint: string;
   openRouterEndpoint: string;
   openRouterApiKey: string;
+  openRouterModel: string;
   /** True once settings have been loaded from the local store / keychain. */
   loaded: boolean;
   /**
@@ -34,6 +36,7 @@ interface AiSettingsValue {
   setLmStudioEndpoint: (s: string) => void;
   setOpenRouterEndpoint: (s: string) => void;
   setOpenRouterApiKey: (s: string) => void;
+  setOpenRouterModel: (s: string) => void;
   /** Persist settings to the local store and the API key to the OS keychain. */
   save: () => Promise<void>;
 }
@@ -45,6 +48,7 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [lmStudioEndpoint, setLmStudioEndpoint] = useState(DEFAULT_LMSTUDIO_ENDPOINT);
   const [openRouterEndpoint, setOpenRouterEndpoint] = useState(DEFAULT_OPENROUTER_ENDPOINT);
   const [openRouterApiKey, setOpenRouterApiKey] = useState('');
+  const [openRouterModel, setOpenRouterModel] = useState(DEFAULT_OPENROUTER_MODEL);
   const [loaded, setLoaded] = useState(false);
   const [configuredAtStart, setConfiguredAtStart] = useState(false);
 
@@ -73,6 +77,7 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setProvider((settings['provider'] as Provider | undefined) ?? 'lmstudio');
       setLmStudioEndpoint(settings['lmStudioEndpoint'] ?? DEFAULT_LMSTUDIO_ENDPOINT);
       setOpenRouterEndpoint(settings['openRouterEndpoint'] ?? DEFAULT_OPENROUTER_ENDPOINT);
+      setOpenRouterModel(settings['openRouterModel'] || DEFAULT_OPENROUTER_MODEL);
 
       const legacy = localStorage.getItem('openRouterApiKey');
       if (legacy) {
@@ -109,6 +114,7 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await sync.setSetting('provider', provider);
     await sync.setSetting('lmStudioEndpoint', lmStudioEndpoint);
     await sync.setSetting('openRouterEndpoint', openRouterEndpoint);
+    await sync.setSetting('openRouterModel', openRouterModel.trim() || DEFAULT_OPENROUTER_MODEL);
     await sync.setSetting('ai_configured', 'true');
     if (openRouterApiKey.trim()) {
       await api.credentialSet(OPENROUTER_KEYRING_ACCOUNT, openRouterApiKey);
@@ -120,7 +126,7 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const aiReady =
     provider === 'lmstudio'
       ? lmStudioEndpoint.trim().length > 0
-      : openRouterApiKey.trim().length > 0;
+      : openRouterApiKey.trim().length > 0 && openRouterModel.trim().length > 0;
 
   const value = useMemo<AiSettingsValue>(
     () => ({
@@ -128,14 +134,16 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       lmStudioEndpoint,
       openRouterEndpoint,
       openRouterApiKey,
+      openRouterModel,
       loaded,
       configuredAtStart,
       aiReady,
-      config: { provider, lmStudioEndpoint, openRouterEndpoint, openRouterApiKey },
+      config: { provider, lmStudioEndpoint, openRouterEndpoint, openRouterApiKey, openRouterModel },
       setProvider,
       setLmStudioEndpoint,
       setOpenRouterEndpoint,
       setOpenRouterApiKey,
+      setOpenRouterModel,
       save,
     }),
     [
@@ -143,6 +151,7 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       lmStudioEndpoint,
       openRouterEndpoint,
       openRouterApiKey,
+      openRouterModel,
       loaded,
       configuredAtStart,
       aiReady,
