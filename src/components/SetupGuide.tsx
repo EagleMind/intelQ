@@ -172,7 +172,9 @@ const SetupGuide: React.FC<Props> = ({ onOpenConnections, onEnter }) => {
               aiDone
                 ? provider === 'lmstudio'
                   ? 'LM Studio (local) — ready'
-                  : 'OpenRouter — API key set'
+                  : provider === 'claude'
+                    ? 'Claude Code — using your subscription'
+                    : 'OpenRouter — API key set'
                 : 'This turns your questions into SQL. Pick local or cloud, then save.'
             }
             state={stateOf(2)}

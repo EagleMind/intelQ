@@ -123,7 +123,10 @@ const NLQInterface: React.FC = () => {
         tablesUsed: taggedTables.length > 0 ? taggedTables : 'all',
         estimatedTokens: taggedTables.length > 0 ? 1500 : 3000,
         generationMs,
-        provider: config.provider === 'lmstudio' ? 'LM Studio' : 'OpenRouter',
+        provider:
+          config.provider === 'lmstudio' ? 'LM Studio'
+          : config.provider === 'claude' ? 'Claude Code'
+          : 'OpenRouter',
       });
       setStatusMessage(`SQL generated in ${formatMs(generationMs)} (${approach})`);
     } catch (e) {

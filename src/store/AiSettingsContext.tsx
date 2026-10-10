@@ -20,6 +20,8 @@ interface AiSettingsValue {
   openRouterEndpoint: string;
   openRouterApiKey: string;
   openRouterModel: string;
+  claudeCliPath: string;
+  claudeModel: string;
   /** True once settings have been loaded from the local store / keychain. */
   loaded: boolean;
   /**
@@ -37,6 +39,8 @@ interface AiSettingsValue {
   setOpenRouterEndpoint: (s: string) => void;
   setOpenRouterApiKey: (s: string) => void;
   setOpenRouterModel: (s: string) => void;
+  setClaudeCliPath: (s: string) => void;
+  setClaudeModel: (s: string) => void;
   /** Persist settings to the local store and the API key to the OS keychain. */
   save: () => Promise<void>;
 }
@@ -49,6 +53,8 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [openRouterEndpoint, setOpenRouterEndpoint] = useState(DEFAULT_OPENROUTER_ENDPOINT);
   const [openRouterApiKey, setOpenRouterApiKey] = useState('');
   const [openRouterModel, setOpenRouterModel] = useState(DEFAULT_OPENROUTER_MODEL);
+  const [claudeCliPath, setClaudeCliPath] = useState('');
+  const [claudeModel, setClaudeModel] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [configuredAtStart, setConfiguredAtStart] = useState(false);
 
@@ -78,6 +84,8 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setLmStudioEndpoint(settings['lmStudioEndpoint'] ?? DEFAULT_LMSTUDIO_ENDPOINT);
       setOpenRouterEndpoint(settings['openRouterEndpoint'] ?? DEFAULT_OPENROUTER_ENDPOINT);
       setOpenRouterModel(settings['openRouterModel'] || DEFAULT_OPENROUTER_MODEL);
+      setClaudeCliPath(settings['claudeCliPath'] ?? '');
+      setClaudeModel(settings['claudeModel'] ?? '');
 
       const legacy = localStorage.getItem('openRouterApiKey');
       if (legacy) {
@@ -115,6 +123,8 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await sync.setSetting('lmStudioEndpoint', lmStudioEndpoint);
     await sync.setSetting('openRouterEndpoint', openRouterEndpoint);
     await sync.setSetting('openRouterModel', openRouterModel.trim() || DEFAULT_OPENROUTER_MODEL);
+    await sync.setSetting('claudeCliPath', claudeCliPath.trim());
+    await sync.setSetting('claudeModel', claudeModel.trim());
     await sync.setSetting('ai_configured', 'true');
     if (openRouterApiKey.trim()) {
       await api.credentialSet(OPENROUTER_KEYRING_ACCOUNT, openRouterApiKey);
@@ -123,10 +133,14 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  // Claude Code needs nothing typed in; whether the CLI is installed and signed
+  // in is the CLI's to say, and AiProviderForm asks it (`claude_status`).
   const aiReady =
     provider === 'lmstudio'
       ? lmStudioEndpoint.trim().length > 0
-      : openRouterApiKey.trim().length > 0 && openRouterModel.trim().length > 0;
+      : provider === 'claude'
+        ? true
+        : openRouterApiKey.trim().length > 0 && openRouterModel.trim().length > 0;
 
   const value = useMemo<AiSettingsValue>(
     () => ({
@@ -135,15 +149,27 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       openRouterEndpoint,
       openRouterApiKey,
       openRouterModel,
+      claudeCliPath,
+      claudeModel,
       loaded,
       configuredAtStart,
       aiReady,
-      config: { provider, lmStudioEndpoint, openRouterEndpoint, openRouterApiKey, openRouterModel },
+      config: {
+        provider,
+        lmStudioEndpoint,
+        openRouterEndpoint,
+        openRouterApiKey,
+        openRouterModel,
+        claudeCliPath,
+        claudeModel,
+      },
       setProvider,
       setLmStudioEndpoint,
       setOpenRouterEndpoint,
       setOpenRouterApiKey,
       setOpenRouterModel,
+      setClaudeCliPath,
+      setClaudeModel,
       save,
     }),
     [
@@ -152,6 +178,8 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       openRouterEndpoint,
       openRouterApiKey,
       openRouterModel,
+      claudeCliPath,
+      claudeModel,
       loaded,
       configuredAtStart,
       aiReady,

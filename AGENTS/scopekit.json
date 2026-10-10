@@ -33,7 +33,9 @@
         "src/components/AiProviderForm.tsx",
         "src/services/llm.ts",
         "src/store/AiSettingsContext.tsx",
-        "src/utils/sqlSafetyAnalyzer.ts"
+        "src/utils/sqlSafetyAnalyzer.ts",
+        "src-tauri/src/claude.rs",
+        "src-tauri/src/mcp.rs"
       ],
       "deps": ["MOD-001", "MOD-004", "MOD-006"]
     },

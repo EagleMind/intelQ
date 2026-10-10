@@ -17,6 +17,8 @@ use tauri::Manager;
 
 mod annotations;
 mod appdb;
+mod claude;
+mod mcp;
 mod sync;
 
 use appdb::ConnectionRecord;
@@ -100,6 +102,9 @@ struct AppState {
     app_db: Arc<RwLock<sqlx::SqlitePool>>,
     /// Path to the app-data SQLite file (for restore swaps + .bak).
     app_db_path: PathBuf,
+    /// Cancels the Claude Code run in flight, if any. A new question replaces
+    /// the old one rather than queueing behind it.
+    claude_run: std::sync::Mutex<Option<(u64, tokio::sync::oneshot::Sender<()>)>>,
 }
 
 impl AppState {
@@ -109,6 +114,7 @@ impl AppState {
             schema: Arc::new(RwLock::new(None)),
             app_db: Arc::new(RwLock::new(app_db)),
             app_db_path,
+            claude_run: std::sync::Mutex::new(None),
         }
     }
 
@@ -1360,6 +1366,83 @@ async fn r2_restore(
     sync::restore(&state, &passphrase).await.map_err(|e| e.to_string())
 }
 
+// ---------------------------------------------------------------------------
+// Claude Code provider (optional — see claude.rs and mcp.rs)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+#[allow(non_snake_case)]
+async fn claude_status(cliPath: Option<String>) -> std::result::Result<claude::ClaudeStatus, String> {
+    Ok(claude::status(cliPath.as_deref()).await)
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+async fn claude_generate_sql(
+    prompt: String,
+    focus: Vec<String>,
+    model: Option<String>,
+    cliPath: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<String, String> {
+    let pool = state.pool().await?;
+    if state.schema.read().await.is_none() {
+        let cache = DatabaseManager::build_schema_cache(&pool)
+            .await
+            .map_err(|e| format!("Failed to load schema: {}", e))?;
+        *state.schema.write().await = Some(cache);
+    }
+    let ctx = {
+        let guard = state.schema.read().await;
+        let cache = guard.as_ref().ok_or("No schema loaded")?;
+        mcp::RunContext {
+            dialect: pool.kind().to_string(),
+            focus,
+            tables: cache
+                .tables
+                .iter()
+                .map(|t| mcp::ContextTable {
+                    name: t.clone(),
+                    columns: cache
+                        .columns_by_table
+                        .get(t)
+                        .into_iter()
+                        .flatten()
+                        .map(|c| mcp::ContextColumn {
+                            name: c.name.clone(),
+                            data_type: c.data_type.clone(),
+                            nullable: c.nullable,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    };
+
+    static RUN_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let id = RUN_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    {
+        let mut slot = state.claude_run.lock().map_err(|e| e.to_string())?;
+        if let Some((_, previous)) = slot.replace((id, tx)) {
+            let _ = previous.send(());
+        }
+    }
+    let result = claude::generate(ctx, claude::RunRequest { prompt, model, cli_path: cliPath }, rx).await;
+    if let Ok(mut slot) = state.claude_run.lock() {
+        if slot.as_ref().map(|(i, _)| *i) == Some(id) {
+            *slot = None;
+        }
+    }
+    result
+}
+
+/// `intelquery mcp <context.json>`: the MCP server a Claude Code run talks to.
+/// Called from main.rs instead of `run()`; no window, no Tauri.
+pub fn run_mcp(context_path: &std::path::Path) -> std::result::Result<(), String> {
+    mcp::serve(context_path)
+}
+
 #[tauri::command]
 fn open_external_url(app: tauri::AppHandle, url: String) -> std::result::Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
@@ -1419,6 +1502,8 @@ pub fn run() {
             annotation_apply_native,
             annotation_fetch_native,
             open_external_url,
+            claude_status,
+            claude_generate_sql,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
