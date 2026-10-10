@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0](https://github.com/EagleMind/intelQ/compare/v1.0.4...v1.1.0) (2026-10-10)
+
+
+### Features
+
+* add optional Claude Code provider for SQL generation ([2d05b96](https://github.com/EagleMind/intelQ/commit/2d05b96745f0c011ca2bf4204f14491de5138235))
+* add optional Claude Code provider for SQL generation ([fece839](https://github.com/EagleMind/intelQ/commit/fece839cd4af0940349a8e321f597b8243f84c8e))
+
 ## [1.0.4](https://github.com/EagleMind/intelQ/compare/v1.0.3...v1.0.4) (2026-09-29)
 
 
