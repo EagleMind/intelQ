@@ -40,6 +40,18 @@ export interface ConnectionResponse {
   message: string;
 }
 
+/** `claude_status`: whether the Claude Code CLI was found and who it is signed in as. */
+export interface ClaudeStatus {
+  found: boolean;
+  path: string | null;
+  signedIn: boolean;
+  email: string | null;
+  org: string | null;
+  plan: string | null;
+  /** Set whenever the CLI cannot be used yet, phrased for the person. */
+  error: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Annotations
 // ---------------------------------------------------------------------------

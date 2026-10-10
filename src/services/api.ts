@@ -1,5 +1,6 @@
 import { safeInvoke } from '../utils/tauri';
 import type {
+  ClaudeStatus,
   ConnectionResponse,
   QueryResult,
   SchemaResponse,
@@ -36,4 +37,14 @@ export const api = {
     safeInvoke<string | null>('credential_get', { account }),
   credentialDelete: (account: string) =>
     safeInvoke<void>('credential_delete', { account }),
+
+  claudeStatus: (cliPath?: string) =>
+    safeInvoke<ClaudeStatus>('claude_status', { cliPath: cliPath?.trim() || null }),
+  claudeGenerateSql: (args: { prompt: string; focus: string[]; model?: string; cliPath?: string }) =>
+    safeInvoke<string>('claude_generate_sql', {
+      prompt: args.prompt,
+      focus: args.focus,
+      model: args.model?.trim() || null,
+      cliPath: args.cliPath?.trim() || null,
+    }),
 };
