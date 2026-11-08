@@ -43,6 +43,7 @@ the edit. You will not be interrupted again for that module this session.
 | MOD-006 | UI Primitives & Theme | `src/components/ui/`, `src/index.css` |
 | MOD-007 | App Shell & Routing | `src/App.tsx`, `src/components/DataExplorer.tsx` |
 | MOD-008 | Onboarding Guide | `src/components/SetupGuide.tsx` |
+| MOD-009 | Saved Questions | `src-tauri/src/saved_questions.rs`, `src/store/SavedQuestionsContext.tsx`, `src/components/saved/` |
 
 ## Project-Wide Rules
 

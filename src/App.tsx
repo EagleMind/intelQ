@@ -10,6 +10,7 @@ import { sync } from './services/sync';
 import { DbProvider, useDb } from './store/DbContext';
 import { AiSettingsProvider, useAiSettings } from './store/AiSettingsContext';
 import { AnnotationProvider, useAnnotations } from './store/AnnotationContext';
+import { SavedQuestionsProvider } from './store/SavedQuestionsContext';
 import { ThemeProvider } from '@/components/theme-provider';
 import { ThemeToggle } from '@/components/theme-toggle';
 import './index.css';
@@ -188,7 +189,9 @@ const App: React.FC = () => (
     <DbProvider>
       <AiSettingsProvider>
         <AnnotationProvider>
-          <Shell />
+          <SavedQuestionsProvider>
+            <Shell />
+          </SavedQuestionsProvider>
         </AnnotationProvider>
       </AiSettingsProvider>
     </DbProvider>

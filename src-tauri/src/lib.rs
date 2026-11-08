@@ -19,6 +19,7 @@ mod annotations;
 mod appdb;
 mod claude;
 mod mcp;
+mod saved_questions;
 mod sync;
 
 use appdb::ConnectionRecord;
@@ -249,13 +250,31 @@ where
         .map(|opt| opt.map(|b| blob_to_hex(&b)))
 }
 
+/// SQLite is dynamically typed: the declared column type (often absent for
+/// expressions and GROUP BY results) says little about a value. Dispatch on the
+/// value's own storage class instead. Order matters for the fallback: sqlx lets
+/// `Vec<u8>` decode TEXT too, so trying bytes first would hex-encode every string.
 fn sqlite_cell(row: &SqliteRow, idx: usize) -> Option<String> {
-    if let Some(v) = try_blob::<_, sqlx::Sqlite>(row, idx) {
-        if v.is_some() {
-            return v;
+    use sqlx::{TypeInfo, ValueRef};
+
+    let storage = match row.try_get_raw(idx) {
+        Ok(raw) if raw.is_null() => return None,
+        Ok(raw) => raw.type_info().name().to_ascii_uppercase(),
+        Err(_) => String::new(),
+    };
+    match storage.as_str() {
+        "TEXT" => try_cell!(row, idx, String),
+        "INTEGER" => try_cell!(row, idx, i64),
+        "REAL" => try_cell!(row, idx, f64),
+        "BLOB" => try_blob::<_, sqlx::Sqlite>(row, idx).unwrap_or(None),
+        _ => {
+            let v = try_cell!(row, idx, String, i64, f64);
+            if v.is_some() {
+                return v;
+            }
+            try_blob::<_, sqlx::Sqlite>(row, idx).unwrap_or(None)
         }
     }
-    try_cell!(row, idx, String, i64, f64, bool)
 }
 
 fn pg_cell(row: &PgRow, idx: usize) -> Option<String> {
@@ -1029,8 +1048,11 @@ async fn appdb_delete_connection(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<(), String> {
     let pool = state.app_db().await;
-    // Cascade: remove all annotations scoped to this connection first.
+    // Cascade: remove annotations and saved questions scoped to this connection first.
     annotations::delete_annotations_for_connection(&pool, &id)
+        .await
+        .map_err(|e| e.to_string())?;
+    saved_questions::delete_for_connection(&pool, &id)
         .await
         .map_err(|e| e.to_string())?;
     appdb::delete_connection(&pool, &id)
@@ -1067,6 +1089,77 @@ async fn appdb_get_settings(
 ) -> std::result::Result<HashMap<String, String>, String> {
     let pool = state.app_db().await;
     appdb::get_settings(&pool).await.map_err(|e| e.to_string())
+}
+
+// -------- Saved questions -------- //
+
+#[tauri::command]
+async fn saved_question_list(
+    connection_id: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<saved_questions::SavedQuestion>, String> {
+    let pool = state.app_db().await;
+    saved_questions::list(&pool, &connection_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn saved_question_save(
+    input: saved_questions::SavedQuestionInput,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<saved_questions::SavedQuestion, String> {
+    let pool = state.app_db().await;
+    saved_questions::save(&pool, &input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn saved_question_delete(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let pool = state.app_db().await;
+    saved_questions::delete(&pool, &id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn saved_question_record_run(
+    id: String,
+    alias: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<saved_questions::SavedQuestion, String> {
+    let pool = state.app_db().await;
+    saved_questions::record_run(&pool, &id, alias.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn question_event_log(
+    connection_id: String,
+    kind: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let pool = state.app_db().await;
+    saved_questions::log_event(&pool, &connection_id, &kind)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn question_stats(
+    connection_id: String,
+    days: i64,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<saved_questions::QuestionStats, String> {
+    let pool = state.app_db().await;
+    saved_questions::stats(&pool, &connection_id, days)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // -------- Annotations -------- //
@@ -1501,10 +1594,89 @@ pub fn run() {
             annotation_export,
             annotation_apply_native,
             annotation_fetch_native,
+            saved_question_list,
+            saved_question_save,
+            saved_question_delete,
+            saved_question_record_run,
+            question_event_log,
+            question_stats,
             open_external_url,
             claude_status,
             claude_generate_sql,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod cell_tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn rows(sql: &str) -> Vec<SqliteRow> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, country TEXT, \
+             price REAL, data BLOB, untyped)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO t (name, country, price, data, untyped) VALUES \
+             ('Ann', 'Spain', 9.5, x'deadbeef', 'free text'), \
+             ('Bob', 'Spain', NULL, NULL, 42), \
+             ('Cy',  'France', 3.0, NULL, NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(sql).fetch_all(&pool).await.unwrap()
+    }
+
+    fn cells(rows: &[SqliteRow]) -> Vec<Vec<Option<String>>> {
+        let n = rows.first().map(|r| r.columns().len()).unwrap_or(0);
+        sqlite_rows_to_values(rows, n)
+    }
+
+    fn s(v: &str) -> Option<String> {
+        Some(v.to_string())
+    }
+
+    #[tokio::test]
+    async fn text_columns_decode_as_text() {
+        let r = cells(&rows("SELECT name, country FROM t ORDER BY id").await);
+        assert_eq!(r[0], vec![s("Ann"), s("Spain")]);
+    }
+
+    #[tokio::test]
+    async fn grouped_and_expression_columns_decode_as_text() {
+        let r = cells(
+            &rows(
+                "SELECT country, COUNT(*) AS n, upper(country) || '!' AS shout \
+                 FROM t GROUP BY country ORDER BY country",
+            )
+            .await,
+        );
+        assert_eq!(r[0], vec![s("France"), s("1"), s("FRANCE!")]);
+        assert_eq!(r[1], vec![s("Spain"), s("2"), s("SPAIN!")]);
+    }
+
+    #[tokio::test]
+    async fn numbers_nulls_and_blobs() {
+        let r = cells(&rows("SELECT id, price, data FROM t ORDER BY id").await);
+        assert_eq!(r[0], vec![s("1"), s("9.5"), s("0xdeadbeef")]);
+        assert_eq!(r[1], vec![s("2"), None, None]);
+        assert_eq!(r[2], vec![s("3"), s("3"), None]);
+    }
+
+    #[tokio::test]
+    async fn untyped_column_uses_each_value_type() {
+        let r = cells(&rows("SELECT untyped FROM t ORDER BY id").await);
+        assert_eq!(r, vec![vec![s("free text")], vec![s("42")], vec![None]]);
+    }
 }

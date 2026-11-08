@@ -38,6 +38,7 @@ I will spawn an agent pre-loaded with the right context and scoped to the right 
 | MOD-006 | UI Primitives & Theme         | `MOD-006.md`       | `src/components/ui/`, `src/index.css`    |
 | MOD-007 | App Shell & Routing           | `MOD-007.md`       | `src/App.tsx`                            |
 | MOD-008 | Onboarding Guide              | `MOD-008.md`       | `src/components/SetupGuide.tsx`          |
+| MOD-009 | Saved Questions               | `MOD-009.md`       | `src/components/saved/`, `src-tauri/src/saved_questions.rs` |
 
 ---
 
@@ -56,9 +57,12 @@ MOD-007 (App Shell)
   ├── MOD-005 (R2 Backup)
   │     └── MOD-004
   ├── MOD-006 (UI & Theme)
-  └── MOD-008 (Onboarding)
+  ├── MOD-008 (Onboarding)
+  │     ├── MOD-001
+  │     └── MOD-003
+  └── MOD-009 (Saved Questions)  ← also used by MOD-003
         ├── MOD-001
-        └── MOD-003
+        └── MOD-004
 ```
 
 Foundational (no deps): **MOD-004**, **MOD-006**

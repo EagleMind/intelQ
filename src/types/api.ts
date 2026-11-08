@@ -76,3 +76,44 @@ export function makeAnnotationId(
 ): string {
   return `${connectionId}:${tableName}:${columnName ?? ''}:${scope}`;
 }
+
+// ---------------------------------------------------------------------------
+// Saved questions — an AI draft (or hand-written SQL) kept for reuse.
+// Mirrors src-tauri/src/saved_questions.rs.
+// ---------------------------------------------------------------------------
+
+/** Where the saved SQL came from: an untouched AI draft, an edited draft, or typed by hand. */
+export type SavedQuestionSource = 'ai' | 'edited' | 'manual';
+
+export interface SavedQuestion {
+  id: string;
+  connection_id: string;
+  /** Display name — usually the original English phrasing. */
+  question: string;
+  /** Other phrasings that were answered by this question. */
+  aliases: string[];
+  sql: string;
+  source: SavedQuestionSource;
+  run_count: number;
+  last_run_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Create (`id` omitted) or update a saved question. Omit `aliases` to keep the stored ones. */
+export interface SavedQuestionInput {
+  id?: string | null;
+  connection_id: string;
+  question: string;
+  sql: string;
+  source: SavedQuestionSource;
+  aliases?: string[] | null;
+}
+
+export type QuestionEventKind = 'ai_draft' | 'saved_run';
+
+/** Reuse metric over a time window. */
+export interface QuestionStats {
+  ai_drafts: number;
+  saved_runs: number;
+}

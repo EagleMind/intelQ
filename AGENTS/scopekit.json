@@ -30,6 +30,7 @@
       "name": "AI / NLQ SQL Generation",
       "globs": [
         "src/components/NLQInterface.tsx",
+        "src/components/HelpCard.tsx",
         "src/components/AiProviderForm.tsx",
         "src/services/llm.ts",
         "src/store/AiSettingsContext.tsx",
@@ -37,7 +38,7 @@
         "src-tauri/src/claude.rs",
         "src-tauri/src/mcp.rs"
       ],
-      "deps": ["MOD-001", "MOD-004", "MOD-006"]
+      "deps": ["MOD-001", "MOD-004", "MOD-006", "MOD-009"]
     },
     {
       "id": "MOD-004",
@@ -76,7 +77,7 @@
         "src/main.tsx",
         "src/components/DataExplorer.tsx"
       ],
-      "deps": ["MOD-001", "MOD-002", "MOD-003", "MOD-004", "MOD-005", "MOD-006", "MOD-008"]
+      "deps": ["MOD-001", "MOD-002", "MOD-003", "MOD-004", "MOD-005", "MOD-006", "MOD-008", "MOD-009"]
     },
     {
       "id": "MOD-008",
@@ -85,6 +86,19 @@
         "src/components/SetupGuide.tsx"
       ],
       "deps": ["MOD-001", "MOD-003"]
+    },
+    {
+      "id": "MOD-009",
+      "name": "Saved Questions",
+      "globs": [
+        "src-tauri/src/saved_questions.rs",
+        "src/services/savedQuestions.ts",
+        "src/store/SavedQuestionsContext.tsx",
+        "src/components/saved/**",
+        "src/utils/questionMatch.ts",
+        "src/utils/questionMatch.test.ts"
+      ],
+      "deps": ["MOD-001", "MOD-004"]
     }
   ],
   "sharedContracts": [
