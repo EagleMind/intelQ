@@ -72,6 +72,7 @@ pub async fn init_schema(pool: &SqlitePool) -> Result<()> {
     .await?;
 
     crate::annotations::init_schema(pool).await?;
+    crate::saved_questions::init_schema(pool).await?;
 
     Ok(())
 }

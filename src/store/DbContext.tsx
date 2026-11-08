@@ -36,6 +36,26 @@ interface DbContextValue {
 
 const Ctx = createContext<DbContextValue | null>(null);
 
+/** Settings key holding the saved connection the backend pool belongs to. */
+const LAST_CONNECTION_KEY = 'lastConnection';
+
+interface LastConnection {
+  id: string;
+  name?: string;
+  dbType?: string;
+}
+
+async function readLastConnection(): Promise<LastConnection | null> {
+  try {
+    const raw = await sync.getSetting(LAST_CONNECTION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<LastConnection>;
+    return typeof parsed.id === 'string' && parsed.id ? (parsed as LastConnection) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [status, setStatus] = useState<DbStatus>({ connected: false });
   const [tables, setTables] = useState<string[]>([]);
@@ -98,6 +118,13 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const markConnected = useCallback(
     async (name?: string, id?: string, dbType?: string) => {
       setStatus({ connected: true, connectionName: name, connectionId: id, connectionDbType: dbType });
+      // Remember which saved connection is live so a webview reload can restore
+      // connection-scoped data (annotations, saved questions). Cleared when the
+      // connection has no id, so a stale id is never reused.
+      const last: LastConnection | null = id ? { id, name, dbType } : null;
+      sync.setSetting(LAST_CONNECTION_KEY, last ? JSON.stringify(last) : '').catch(() => {
+        // best-effort persistence
+      });
       await loadSchemaAndTables();
     },
     [loadSchemaAndTables]
@@ -110,6 +137,7 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       // ignore
     }
     setStatus({ connected: false, connectionId: undefined, connectionDbType: undefined });
+    sync.setSetting(LAST_CONNECTION_KEY, '').catch(() => {});
     setTables([]);
     setSchema('');
   }, []);
@@ -134,7 +162,8 @@ export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       try {
         const resp = await api.status();
         if (resp.success) {
-          await markConnected();
+          const last = await readLastConnection();
+          await markConnected(last?.name, last?.id, last?.dbType);
         }
       } catch {
         // ignore — backend not ready or no connection
